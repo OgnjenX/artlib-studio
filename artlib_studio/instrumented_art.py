@@ -33,6 +33,7 @@ class InstrumentedART:
     def step_fit(
         self,
         x: np.ndarray,
+        sample_index: int = -1,
         match_reset_func: Optional[Callable] = None,
         match_tracking: str = "MT+",
         epsilon: float = 0.0,
@@ -43,7 +44,14 @@ class InstrumentedART:
         cluster index.
         """
         # Record input
-        self.recorder.record(EventType.INPUT_RECEIVED, {"input": x.tolist()})
+        self.recorder.record(
+            EventType.INPUT_RECEIVED, 
+            {
+                "sample_index": sample_index,
+                "input": x.tolist(),
+                "explanation": f"Input received."
+            }
+        )
 
         # follow the same logic as BaseART.step_fit, but call through to the
         # wrapped art instance methods so behavior is unchanged.
@@ -59,7 +67,14 @@ class InstrumentedART:
             # no categories -> create one
             w_new = self.art.new_weight(x, self.art.params)
             self.art.add_weight(w_new)
-            self.recorder.record(EventType.CATEGORY_CREATED, {"created_index": 0})
+            self.recorder.record(
+                EventType.CATEGORY_CREATED, 
+                {
+                    "sample_index": sample_index,
+                    "created_index": 0,
+                    "explanation": "No categories exist. New category 0 created.",
+                }
+            )
             return 0
 
         # compute T values
@@ -85,8 +100,16 @@ class InstrumentedART:
 
         # emit CATEGORY_EVALUATED events for transparency
         for idx, t in enumerate(T_values):
-            payload = {"index": int(idx), "choice_value": None if np.isnan(t) else float(t)}
-            self.recorder.record(EventType.CATEGORY_EVALUATED, payload)
+            ch_val = None if np.isnan(t) else float(t)
+            self.recorder.record(
+                EventType.CATEGORY_EVALUATED, 
+                {
+                    "sample_index": sample_index,
+                    "category_id": int(idx), 
+                    "choice_score": ch_val,
+                    "explanation": f"Category {idx} evaluated. Choice score = {ch_val:.4f}" if ch_val is not None else f"Category {idx} evaluated. Choice score = NaN"
+                }
+            )
 
         # sort candidates
         valid = ~np.isnan(T)
@@ -105,7 +128,14 @@ class InstrumentedART:
             cache = T_cache[c_]
 
             # select candidate -> event
-            self.recorder.record(EventType.CATEGORY_SELECTED, {"candidate": int(c_)})
+            self.recorder.record(
+                EventType.CATEGORY_SELECTED, 
+                {
+                    "sample_index": sample_index,
+                    "category_id": int(c_),
+                    "explanation": f"Category {c_} selected as best candidate."
+                }
+            )
 
             m, cache = self.art.match_criterion_bin(
                 x, w, params=self.art.params, cache=cache, op=mt_operator
@@ -113,13 +143,19 @@ class InstrumentedART:
 
             # emit match test results
             mc = cache.get("match_criterion") if isinstance(cache, dict) else None
-            payload = {
-                "candidate": int(c_),
-                "match": None if mc is None else float(mc),
-                "vigilance": float(self.art.params.get("rho")),
-                "passed": bool(m),
-            }
-            self.recorder.record(EventType.MATCH_TEST, payload)
+            vig = float(self.art.params.get("rho"))
+            passed = bool(m)
+            self.recorder.record(
+                EventType.MATCH_TEST, 
+                {
+                    "sample_index": sample_index,
+                    "category_id": int(c_),
+                    "match_score": None if mc is None else float(mc),
+                    "vigilance": vig,
+                    "passed": passed,
+                    "explanation": f"Match test: match = {float(mc):.4f}, vigilance = {vig:.4f}. {'Passed' if passed else 'Failed'}." if mc is not None else f"Match test: {'Passed' if passed else 'Failed'}."
+                }
+            )
 
             if match_tracking == "MT~" and match_reset_func is not None:
                 no_match_reset = True
@@ -130,11 +166,25 @@ class InstrumentedART:
 
             if m and no_match_reset:
                 # Resonance
-                self.recorder.record(EventType.RESONANCE, {"winner": int(c_)})
+                self.recorder.record(
+                    EventType.RESONANCE, 
+                    {
+                        "sample_index": sample_index,
+                        "category_id": int(c_),
+                        "explanation": f"Resonance occurred with category {c_}."
+                    }
+                )
                 # Learning (update weight)
                 new_w = self.art.update(x, w, self.art.params, cache=cache)
                 self.art.set_weight(c_, new_w)
-                self.recorder.record(EventType.LEARNING, {"index": int(c_)})
+                self.recorder.record(
+                    EventType.LEARNING, 
+                    {
+                        "sample_index": sample_index,
+                        "category_id": int(c_),
+                        "explanation": f"Category {c_} learned the input pattern."
+                    }
+                )
                 # restore params
                 if base_params is not None:
                     self.art._set_params(base_params)
@@ -142,7 +192,14 @@ class InstrumentedART:
             else:
                 if m and not no_match_reset:
                     # RESET event
-                    self.recorder.record(EventType.RESET, {"candidate": int(c_)})
+                    self.recorder.record(
+                        EventType.RESET, 
+                        {
+                            "sample_index": sample_index,
+                            "category_id": int(c_),
+                            "explanation": f"Reset category {c_}."
+                        }
+                    )
                     keep_searching = self.art._match_tracking(cache, epsilon, self.art.params, match_tracking)
                     if not keep_searching:
                         break
@@ -151,7 +208,14 @@ class InstrumentedART:
         c_new = len(self.art.W)
         w_new = self.art.new_weight(x, self.art.params)
         self.art.add_weight(w_new)
-        self.recorder.record(EventType.CATEGORY_CREATED, {"created_index": int(c_new)})
+        self.recorder.record(
+            EventType.CATEGORY_CREATED, 
+            {
+                "sample_index": sample_index,
+                "created_index": int(c_new),
+                "explanation": f"Search continues. New category {c_new} created."
+            }
+        )
         if base_params is not None:
             self.art._set_params(base_params)
         return c_new
@@ -179,6 +243,6 @@ class InstrumentedART:
         self.art.labels_ = np.zeros((Xp.shape[0],), dtype=int)
 
         for i, x in enumerate(Xp):
-            self.art.labels_[i] = self.step_fit(x, **kwargs)
+            self.art.labels_[i] = self.step_fit(x, sample_index=i, **kwargs)
 
         return self.art

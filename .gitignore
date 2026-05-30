@@ -220,3 +220,4 @@ __marimo__/
 # Mac stuff
 __MACOSX/
 .DS_Store
+/examples/output/

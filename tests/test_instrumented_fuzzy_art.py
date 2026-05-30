@@ -64,11 +64,11 @@ def test_trace_recorder_events():
     recorder = TraceRecorder()
     art = FuzzyART(rho=0.5, alpha=0.0, beta=1.0)
     instr = InstrumentedART(art, recorder=recorder)
-
+    
     instr.fit(Xn)
-
+    
     events = [e.type for e in recorder.events]
-
+    
     assert EventType.INPUT_RECEIVED in events
     # Only for samples after the first one, it evaluates existing categories
     assert EventType.CATEGORY_EVALUATED in events
@@ -81,3 +81,19 @@ def test_trace_recorder_events():
     # Our instrumented_art.py records EventType.LEARNING together with RESONANCE
     assert EventType.LEARNING in events or EventType.CATEGORY_CREATED in events
 
+    # Verify new fields
+    for e in recorder.events:
+        assert "sample_index" in e.payload
+        assert "explanation" in e.payload
+
+def test_trace_recorder_to_json():
+    recorder = TraceRecorder()
+    recorder.record(EventType.INPUT_RECEIVED, {"sample_index": 0, "explanation": "test"})
+    json_str = recorder.to_json()
+    assert "INPUT_RECEIVED" in json_str
+    assert "sample_index" in json_str
+    assert "explanation" in json_str
+    import json
+    data = json.loads(json_str)
+    assert len(data) == 1
+    assert data[0]["type"] == "INPUT_RECEIVED"

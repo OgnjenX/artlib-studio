@@ -12,9 +12,12 @@ import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
 
-# Make AdaptiveResonanceLib importable when running from the repo
-ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-ARL_PATH = os.path.join(ROOT, "AdaptiveResonanceLib")
+# Make both `artlib_studio` and `AdaptiveResonanceLib` importable when running
+# the file directly via `streamlit run artlib_studio/streamlit_app.py`.
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+ARL_PATH = os.path.abspath(os.path.join(PROJECT_ROOT, "..", "AdaptiveResonanceLib"))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
 if ARL_PATH not in sys.path:
     sys.path.append(ARL_PATH)
 
@@ -35,50 +38,52 @@ def make_dataset(n_samples=200, centers=3, seed=0) -> Tuple[np.ndarray, np.ndarr
 
 
 def plot_state(X, labels, art, recorder: TraceRecorder, current_event_index: int):
-    fig, axes = plt.subplots(1, 2, figsize=(10, 4))
-    ax_points, ax_timeline = axes
+    fig, ax_points = plt.subplots(figsize=(6, 4))
 
-    # Panel A & B: Data points and categories
+    # Identify current sample if any
+    events = recorder.events
+    current_sample_idx = -1
+    if 0 <= current_event_index < len(events):
+        current_sample_idx = events[current_event_index].payload.get("sample_index", -1)
+
+    # Panel: Data points and categories
     if labels is None:
-        ax_points.scatter(X[:, 0], X[:, 1], s=10, color="gray")
+        ax_points.scatter(X[:, 0], X[:, 1], s=20, color="gray")
     else:
         # color by label
         for k in np.unique(labels):
             mask = labels == k
-            ax_points.scatter(X[mask, 0], X[mask, 1], s=10, label=f"c{k}")
+            ax_points.scatter(X[mask, 0], X[mask, 1], s=20, label=f"c{k}")
 
-    # plot category bounding boxes if available (2D only)
+    # Highlight current sample
+    if current_sample_idx >= 0:
+        ax_points.scatter(X[current_sample_idx, 0], X[current_sample_idx, 1],
+                          s=150, facecolors='none', edgecolors='red', linewidths=2, label="Current")
+
+    # Plot category bounding boxes (using final state for now as approximation)
     try:
-        if hasattr(art, "get_bounding_boxes") and art.n_clusters > 0:
+        if hasattr(art, "get_bounding_boxes") and getattr(art, "n_clusters", 0) > 0:
             bboxes = art.get_bounding_boxes(n=2)
             for idx, bbox in enumerate(bboxes):
                 ref, widths = bbox
-                rect = plt.Rectangle((ref[0], ref[1]), widths[0], widths[1], fill=False, edgecolor="C%d" % (idx % 10))
+                rect = plt.Rectangle((ref[0], ref[1]), widths[0], widths[1], fill=False, edgecolor="C%d" % (idx % 10), linewidth=2)
                 ax_points.add_patch(rect)
+                ax_points.text(ref[0], ref[1], f"Cat {idx}", color="C%d" % (idx % 10), fontsize=9)
     except Exception:
         pass
 
-    ax_points.set_title("Data and categories")
+    ax_points.set_title("Data and Categories (Final State Approximation)")
     ax_points.set_xlim(-0.05, 1.05)
     ax_points.set_ylim(-0.05, 1.05)
-
-    # Panel F: timeline
-    events = recorder.events
-    y = 0
-    ax_timeline.axis('off')
-    for i, ev in enumerate(events):
-        txt = f"{i}: {ev.type.value} {ev.payload}"
-        color = "black"
-        if i == current_event_index:
-            color = "red"
-        ax_timeline.text(0, 1 - (i * 0.06), txt, color=color, fontsize=8, family='monospace')
+    ax_points.legend(loc='upper right', fontsize='small')
 
     plt.tight_layout()
     return fig
 
 
 def main():
-    st.title("ARTLib Studio — Execution Explorer (v0.1)")
+    st.set_page_config(layout="wide")
+    st.title("ARTLib Studio — Step-By-Step Fuzzy ART Explorer (v0.2)")
 
     if "recorder" not in st.session_state:
         st.session_state.recorder = None
@@ -87,78 +92,103 @@ def main():
         st.session_state.X = None
         st.session_state.labels = None
         st.session_state.current_event_index = -1
+        st.session_state.current_sample_filter = 0
 
-    col1, col2 = st.columns([1, 2])
-    with col1:
-        n = st.slider("n samples", 20, 1000, 200)
+    col_left, col_main, col_right = st.columns([1, 2, 1.5])
+
+    with col_left:
+        st.subheader("Settings")
+        n = st.slider("n samples", 5, 200, 20)
         centers = st.slider("centers", 1, 6, 3)
-        seed = st.number_input("seed", value=0)
-        rho = st.slider("vigilance (rho)", 0.0, 1.0, 0.85)
-        alpha = st.number_input("alpha (choice)", value=0.0)
-        beta = st.number_input("beta (learn)", value=1.0)
+        seed = st.number_input("seed", value=42)
+
+        st.markdown("---")
+        st.subheader("Fuzzy ART Parameters")
+        rho = st.slider("vigilance (rho)", 0.0, 1.0, 0.85, step=0.01)
+        alpha = st.slider("choice (alpha)", 0.0, 1.0, 0.0, step=0.01)
+        beta = st.slider("learning rate (beta)", 0.0, 1.0, 1.0, step=0.01)
 
         if st.button("Generate dataset"):
             X, y = make_dataset(n_samples=n, centers=centers, seed=seed)
             st.session_state.X = X
             st.session_state.labels = None
             st.session_state.recorder = None
+            st.session_state.current_event_index = -1
 
-        if st.button("Run instrumented FuzzyART"):
+        if st.button("Run FuzzyART"):
             if st.session_state.X is None:
                 st.warning("Generate dataset first")
             else:
                 recorder = TraceRecorder()
                 art = FuzzyART(rho=float(rho), alpha=float(alpha), beta=float(beta))
                 instr = InstrumentedART(art, recorder=recorder)
-                # prepare data using the model helper (complement code + normalize)
-                Xp = instr.prepare_data(st.session_state.X)
-                # step through samples and record events
-                labels = -np.ones((Xp.shape[0],), dtype=int)
-                for i, x in enumerate(Xp):
-                    c = instr.step_fit(x)
-                    labels[i] = c
+
+                # Fit the data
+                instr.fit(st.session_state.X)
+
                 st.session_state.recorder = recorder
                 st.session_state.art = art
                 st.session_state.instrumented = instr
-                st.session_state.labels = labels
+                st.session_state.labels = art.labels_
                 st.session_state.current_event_index = 0 if len(recorder.events) > 0 else -1
 
-    with col2:
-        st.header("Execution Explorer")
+        if st.button("Reset Explorer"):
+            st.session_state.recorder = None
+            st.session_state.art = None
+            st.session_state.instrumented = None
+            st.session_state.labels = None
+            st.session_state.current_event_index = -1
+
+    with col_main:
+        st.subheader("Visualization")
         if st.session_state.recorder is None:
-            st.info("No execution recorded yet. Generate dataset and run instrumented FuzzyART.")
-            return
+            st.info("Run FuzzyART to see the visualization.")
+            if st.session_state.X is not None:
+                # Just show the data
+                fig, ax = plt.subplots(figsize=(6,4))
+                ax.scatter(st.session_state.X[:,0], st.session_state.X[:,1], s=20, color="gray")
+                ax.set_title("Input Data")
+                st.pyplot(fig)
+        else:
+            rec = st.session_state.recorder
+            fig = plot_state(st.session_state.X, st.session_state.labels, st.session_state.art, rec, st.session_state.current_event_index)
+            st.pyplot(fig)
 
-        rec = st.session_state.recorder
-        idx = st.session_state.current_event_index
+    with col_right:
+        st.subheader("Event Trace")
+        if st.session_state.recorder is None:
+            st.write("No trace available.")
+        else:
+            rec = st.session_state.recorder
 
-        # Controls
-        c1, c2, c3 = st.columns([1, 1, 1])
-        if c1.button("<< Prev"):
-            ev = rec.step_backward()
-            if ev is not None:
-                st.session_state.current_event_index = rec.index
-        if c2.button("Next >>"):
-            ev = rec.step_forward()
-            if ev is not None:
-                st.session_state.current_event_index = rec.index
-        if c3.button("Replay"):
-            # simple replay: iterate and advance index with small pause
-            for i, ev in enumerate(rec.events):
-                st.session_state.current_event_index = i
-                st.experimental_rerun()
+            # Global Step Controls
+            st.write("**Global Step Controls**")
+            c1, c2 = st.columns([1, 1])
+            if c1.button("<< Step Prev Event"):
+                if st.session_state.current_event_index > 0:
+                    st.session_state.current_event_index -= 1
+            if c2.button("Step Next Event >>"):
+                if st.session_state.current_event_index < len(rec.events) - 1:
+                    st.session_state.current_event_index += 1
 
-        # show current event detail
-        ev = rec.current()
-        if ev is not None:
-            st.subheader(f"Event {rec.index}: {ev.type.value}")
-            st.json({"timestamp": ev.timestamp, "payload": ev.payload})
+            curr_ev = rec.events[st.session_state.current_event_index] if st.session_state.current_event_index >= 0 else None
+            if curr_ev:
+                st.markdown(f"**Current Event ({st.session_state.current_event_index + 1}/{len(rec.events)})**")
+                st.info(curr_ev.payload.get("explanation", curr_ev.type.value))
+                with st.expander("Event Payload"):
+                    st.json(curr_ev.payload)
 
-        # render state plot
-        fig = plot_state(st.session_state.X, st.session_state.labels, st.session_state.art, rec, st.session_state.current_event_index)
-        st.pyplot(fig)
+            st.markdown("---")
+            # Group events by sample
+            sample_ids = sorted(list(set([e.payload.get("sample_index", -1) for e in rec.events if e.payload.get("sample_index", -1) != -1])))
+            if sample_ids:
+                selected_sample = st.selectbox("Inspect specific sample trace:", sample_ids, index=0)
+                sample_events = [e for e in rec.events if e.payload.get("sample_index", -1) == selected_sample]
 
+                st.write(f"**Trace for Sample {selected_sample}:**")
+                for e in sample_events:
+                    color = "blue" if e.type == EventType.RESONANCE else ("green" if e.type == EventType.CATEGORY_CREATED else "black")
+                    st.markdown(f"- :{color}[{e.type.value}]: {e.payload.get('explanation', '')}")
 
 if __name__ == "__main__":
     main()
-
