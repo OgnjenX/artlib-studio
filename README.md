@@ -7,3 +7,9 @@ Interactive visual environment for exploring, debugging, and composing Adaptive 
 * Step-by-step textual trace (`examples/trace_fuzzy_art_step_by_step.py`)
 * JSON trace export (`examples/export_fuzzy_art_trace.py`)
 * Streamlit prototype explorer (`artlib_studio/streamlit_app.py`)
+* **ART Internals Inspector (v0.3)**:
+  * Category competition table
+  * Choice/match/vigilance visualization
+  * Conceptual F1/F2 view
+  * Search history trace
+  * Learning update inspector

@@ -37,6 +37,7 @@ class InstrumentedART:
         match_reset_func: Optional[Callable] = None,
         match_tracking: str = "MT+",
         epsilon: float = 0.0,
+        raw_x: Optional[np.ndarray] = None,
     ) -> int:
         """Instrumented single-sample fit.
 
@@ -44,14 +45,21 @@ class InstrumentedART:
         cluster index.
         """
         # Record input
+        params = self.art.params
         self.recorder.record(
             EventType.INPUT_RECEIVED, 
             {
                 "sample_index": sample_index,
-                "input": x.tolist(),
+                "input": raw_x.tolist() if raw_x is not None else x.tolist(),
+                "prepared_input": x.tolist(),
+                "rho": float(params.get("rho", 0.0)),
+                "alpha": float(params.get("alpha", 0.0)),
+                "beta": float(params.get("beta", 0.0)),
                 "explanation": f"Input received."
             }
         )
+
+        resets = []
 
         # follow the same logic as BaseART.step_fit, but call through to the
         # wrapped art instance methods so behavior is unchanged.
@@ -133,6 +141,7 @@ class InstrumentedART:
                 {
                     "sample_index": sample_index,
                     "category_id": int(c_),
+                    "choice_score": float(T[c_]),
                     "explanation": f"Category {c_} selected as best candidate."
                 }
             )
@@ -171,10 +180,13 @@ class InstrumentedART:
                     {
                         "sample_index": sample_index,
                         "category_id": int(c_),
+                        "match_score": None if mc is None else float(mc),
+                        "vigilance": vig,
                         "explanation": f"Resonance occurred with category {c_}."
                     }
                 )
                 # Learning (update weight)
+                w_before = w.copy()
                 new_w = self.art.update(x, w, self.art.params, cache=cache)
                 self.art.set_weight(c_, new_w)
                 self.recorder.record(
@@ -182,6 +194,8 @@ class InstrumentedART:
                     {
                         "sample_index": sample_index,
                         "category_id": int(c_),
+                        "weights_before": w_before.tolist(),
+                        "weights_after": new_w.tolist(),
                         "explanation": f"Category {c_} learned the input pattern."
                     }
                 )
@@ -192,11 +206,13 @@ class InstrumentedART:
             else:
                 if m and not no_match_reset:
                     # RESET event
+                    resets.append(int(c_))
                     self.recorder.record(
                         EventType.RESET, 
                         {
                             "sample_index": sample_index,
                             "category_id": int(c_),
+                            "reset_categories": list(resets),
                             "explanation": f"Reset category {c_}."
                         }
                     )
@@ -225,6 +241,7 @@ class InstrumentedART:
 
         Returns the wrapped art instance for chaining.
         """
+        X_raw = X
         # If the underlying ART has prepare_data, call it
         try:
             Xp = self.art.prepare_data(X)
@@ -243,6 +260,7 @@ class InstrumentedART:
         self.art.labels_ = np.zeros((Xp.shape[0],), dtype=int)
 
         for i, x in enumerate(Xp):
-            self.art.labels_[i] = self.step_fit(x, sample_index=i, **kwargs)
+            raw_x = X_raw[i] if hasattr(X_raw, "__getitem__") and len(X_raw) > i else None
+            self.art.labels_[i] = self.step_fit(x, sample_index=i, raw_x=raw_x, **kwargs)
 
         return self.art

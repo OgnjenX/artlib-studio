@@ -86,6 +86,62 @@ def test_trace_recorder_events():
         assert "sample_index" in e.payload
         assert "explanation" in e.payload
 
+def test_instrumented_art_new_inspector_fields():
+    X = np.array([[0.1, 0.2], [0.11, 0.21]])
+    recorder = TraceRecorder()
+    # High vigilance to trigger resets if we had different samples,
+    # but here let's just check if fields are present
+    art = FuzzyART(rho=0.9, alpha=0.0, beta=1.0)
+    instr = InstrumentedART(art, recorder=recorder)
+    instr.fit(X)
+
+    # Check INPUT_RECEIVED
+    input_evs = [e for e in recorder.events if e.type == EventType.INPUT_RECEIVED]
+    assert len(input_evs) == 2
+    for ev in input_evs:
+        assert "input" in ev.payload
+        assert "prepared_input" in ev.payload
+        assert "rho" in ev.payload
+        assert "alpha" in ev.payload
+        assert "beta" in ev.payload
+
+    # Check CATEGORY_SELECTED
+    selected_evs = [e for e in recorder.events if e.type == EventType.CATEGORY_SELECTED]
+    if selected_evs:
+        for ev in selected_evs:
+            assert "choice_score" in ev.payload
+            assert isinstance(ev.payload["choice_score"], float)
+
+    # Check MATCH_TEST
+    match_evs = [e for e in recorder.events if e.type == EventType.MATCH_TEST]
+    if match_evs:
+        for ev in match_evs:
+            assert "match_score" in ev.payload
+            assert "vigilance" in ev.payload
+            assert "passed" in ev.payload
+
+    # Check LEARNING
+    learn_evs = [e for e in recorder.events if e.type == EventType.LEARNING]
+    if learn_evs:
+        for ev in learn_evs:
+            assert "weights_before" in ev.payload
+            assert "weights_after" in ev.payload
+            assert len(ev.payload["weights_before"]) == len(ev.payload["weights_after"])
+
+    # Check RESONANCE
+    resonance_evs = [e for e in recorder.events if e.type == EventType.RESONANCE]
+    if resonance_evs:
+        for ev in resonance_evs:
+            assert "match_score" in ev.payload
+            assert "vigilance" in ev.payload
+
+    # Check JSON export includes new fields
+    json_str = recorder.to_json()
+    assert "prepared_input" in json_str
+    if learn_evs:
+        assert "weights_before" in json_str
+
+
 def test_trace_recorder_to_json():
     recorder = TraceRecorder()
     recorder.record(EventType.INPUT_RECEIVED, {"sample_index": 0, "explanation": "test"})
