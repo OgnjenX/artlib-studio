@@ -34,6 +34,28 @@ Event types produced by the instrumentation layer (`artlib_studio.events`):
 Each event includes a timestamp, a `sample_index`, a `explanation` string, and a payload with relevant numeric/contextual
 information so the UI can quickly present human-readable logs of what occurred.
 
+## Live ART Process Tracker
+
+The Live ART Process Tracker allows users to view what is happening *at the specific chosen event step* dynamically on the central plot.
+
+### Timeline-Aware Replay
+
+ART algorithms learn incrementally, updating prototypes sequentially instead of in batch loops. 
+To accurately represent this without creating false batch-clustering mental models, the **Timeline replay** mode is implemented.
+
+Features:
+- **Timeline rendering:** At event `N`, only data samples from `t=0` to the current sample are considered "seen" by the network, preserving true incremental rendering. Future samples may be completely hidden or shown faintly.
+- **Category tracking:** If a category doesn't exist yet at event `N`, it remains completely hidden. Category dimensions/boxes grow dynamically corresponding directly to the exact historical `weights_after` state.
+- **Event-aware highlighting:** The central plot highlights the currently processed data point, currently evaluated category, and the category being reset.
+- **Match/vigilance panels:** Intuitively compares match score vs. vigilance via a visual split bar, coloring results as PASSED or FAILED.
+- **Category competition table:** Lists the categories competing for the current sample along with their choice scores, match scores, and status (evaluated, selected, reset, resonance, created).
+- **Search history:** Shows a bulleted list summarising the order of categories explored and reset for the current sample.
+- **Current-step explanations:** Displays a short natural language string describing precisely what the current ART phase behaves like (e.g. input received, check match, reset or resonance). The text changes dynamically noting early constraints as the network builds.
+- **Approximate regions warning:** Note that visual category regions may overlap and visually look inaccurate occasionally due to the non-linear math; actual choice relies on pure choice metrics and match scores. Depending on full historical snapshots, past boundary sizes could also carry slight approximation limitations.
+
+### Final Learned State View Toggle
+While Timeline replay serves strictly sequential analysis, the secondary **Final learned state** explicitly ignores iteration index constraints, painting the full eventual dataset bounding map spanning all points simultaneously. Useful for reviewing ultimate convergence geometry.
+
 ## Interpreting ART Execution
 - **Vigilance**: The minimum match threshold required for a category to incorporate an input pattern. If vigilance is high, categories remain small, and many are automatically generated.
 - **Search & Reset**: If the highest activated/choice category fails the vigilance match test, a "Reset" event fires, and the next highest scored category is selected until a "Resonance" match is found. 

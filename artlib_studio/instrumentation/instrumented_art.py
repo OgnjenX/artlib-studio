@@ -81,6 +81,7 @@ class InstrumentedART:
                 {
                     "sample_index": sample_index,
                     "created_index": 0,
+                    "weights_after": w_new.tolist(),
                     "explanation": "No categories exist. New category 0 created.",
                 }
             )
@@ -230,6 +231,7 @@ class InstrumentedART:
             {
                 "sample_index": sample_index,
                 "created_index": int(c_new),
+                "weights_after": w_new.tolist(),
                 "explanation": f"Search continues. New category {c_new} created."
             }
         )

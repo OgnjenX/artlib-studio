@@ -45,3 +45,28 @@ pytest
 ```bash
 streamlit run artlib_studio/apps/streamlit_app.py
 ```
+
+## ARTLib Studio Current Status
+
+Currently implemented features:
+
+* Adapter/capability architecture
+* FuzzyARTAdapter as the first supported adapter
+* InstrumentedART wrapper for BaseART models
+* Execution trace recording to memory and JSON
+* Educational step-by-step Streamlit app
+* Modular event-based visualization architecture
+* Llive event tracker
+* Timeline replay
+* Final-state view toggle
+* Processed/future sample distinction
+* Category creation timeline tracking
+* Event-aware plot highlighting
+* Match/vigilance panel
+* Category competition table
+* Search history panel
+* Current-step explanation cards
+
+## How to use
+
+See the [Streamlit app](https://github.com/NiklasMelton/ARTLibStudio/blob/master/artlib_studio/apps/streamlit_app.py) for an interactive demo.

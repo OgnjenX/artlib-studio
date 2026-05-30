@@ -31,7 +31,11 @@ from artlib_studio.core.recorder import TraceRecorder
 from artlib_studio.core.capabilities import Capability
 from artlib_studio.visualization.category_geometry import plot_state
 from artlib_studio.visualization.internals import show_internals_inspector
-
+from artlib_studio.visualization.process_tracker import render_process_visualization
+from artlib_studio.visualization.match_vigilance import show_match_vigilance_panel
+from artlib_studio.visualization.competition_table import show_competition_table
+from artlib_studio.visualization.search_history import show_search_history
+from artlib_studio.visualization.explanations import get_explanation
 
 def make_dataset(n_samples=200, centers=3, seed=0) -> Tuple[np.ndarray, np.ndarray]:
     X, y = make_blobs(n_samples=n_samples, centers=centers, random_state=seed)
@@ -118,6 +122,17 @@ def main():
             st.session_state.labels = None
             st.session_state.current_event_index = -1
 
+        st.markdown("---")
+        st.subheader("View Mode")
+        view_mode = st.radio("Select View:", ["Timeline replay", "Final learned state"], index=0)
+        show_future_faintly = st.checkbox("Show future samples faintly", value=False)
+        
+        st.markdown("---")
+        if view_mode == "Timeline replay":
+            st.info("ART learns incrementally. Timeline replay shows only samples and categories that exist up to the selected event. Future samples/categories are hidden or shown faintly.")
+        else:
+            st.warning("Final Learned State shows the final model state after all training is complete.")
+
     with col_main:
         st.subheader("Visualization")
         if st.session_state.recorder is None:
@@ -131,10 +146,30 @@ def main():
         else:
             rec = st.session_state.recorder
             adapter_in_use = get_adapter(selected_model_key)
-            fig = plot_state(st.session_state.X, st.session_state.labels, st.session_state.art, adapter_in_use, rec, st.session_state.current_event_index)
+            if view_mode == "Final learned state":
+                fig = plot_state(st.session_state.X, st.session_state.labels, st.session_state.art, adapter_in_use, rec, st.session_state.current_event_index)
+            else:
+                fig = render_process_visualization(
+                    st.session_state.X, 
+                    st.session_state.labels, 
+                    adapter_in_use, 
+                    st.session_state.art, 
+                    rec, 
+                    st.session_state.current_event_index,
+                    show_future_faintly=show_future_faintly
+                )
             st.pyplot(fig)
-            st.caption("Category regions are visual approximations.")
+            
+            st.caption("Category regions are approximate projections of learned Fuzzy ART expectations. They are not hard decision boundaries. Overlap can be normal. Actual category selection is determined by choice scores and vigilance match.")
 
+            # Add Panels
+            if view_mode == "Timeline replay" and st.session_state.current_event_index >= 0:
+                current_event = rec.events[st.session_state.current_event_index]
+                show_match_vigilance_panel(current_event)
+                
+                c_idx = current_event.payload.get("sample_index", -1) if hasattr(current_event, "payload") else -1
+                show_competition_table(rec, c_idx)
+                
             # Add Internals Inspector
             if adapter_in_use.supports(Capability.TRACE_EXECUTION):
                 show_internals_inspector(adapter_in_use, rec, st.session_state.current_event_index)
@@ -147,36 +182,79 @@ def main():
             rec = st.session_state.recorder
             adapter_in_use = get_adapter(selected_model_key)
 
+            curr_ev = rec.events[st.session_state.current_event_index] if st.session_state.current_event_index >= 0 else None
+            c_idx = curr_ev.payload.get("sample_index", -1) if curr_ev else -1
+            
+            # Progress tracking
+            total_samples = len(st.session_state.X) if st.session_state.X is not None else 0
+            if view_mode == "Timeline replay" and c_idx >= 0:
+                from artlib_studio.visualization.timeline_state import build_timeline_state
+                t_state = build_timeline_state(st.session_state.X, rec, st.session_state.current_event_index)
+                proc_samps = len(t_state["processed_sample_indices"]) if t_state else 0
+                st.write(f"**Processed samples:** {proc_samps} / {total_samples}")
+                st.write(f"**Current event:** {st.session_state.current_event_index + 1} / {len(rec.events)}")
+                st.write(f"**Current sample:** {c_idx}")
+
             # Global Step Controls
             st.write("**Global Step Controls**")
             c1, c2 = st.columns([1, 1])
-            if c1.button("<< Step Prev Event"):
+            if c1.button("<< Prev Event"):
                 if st.session_state.current_event_index > 0:
                     st.session_state.current_event_index -= 1
-            if c2.button("Step Next Event >>"):
+            if c2.button("Next Event >>"):
                 if st.session_state.current_event_index < len(rec.events) - 1:
                     st.session_state.current_event_index += 1
 
+            c3, c4 = st.columns([1, 1])
+            if c3.button("<< Prev Sample"):
+                if c_idx > 0:
+                    for i in range(st.session_state.current_event_index - 1, -1, -1):
+                        if rec.events[i].payload.get("sample_index", -1) < c_idx:
+                            for j in range(i, -1, -1):
+                                if j == 0 or rec.events[j-1].payload.get("sample_index", -1) < rec.events[i].payload.get("sample_index", -1):
+                                    st.session_state.current_event_index = j
+                                    break
+                            break
+            if c4.button("Next Sample >>"):
+                if c_idx >= 0:
+                    for i in range(st.session_state.current_event_index + 1, len(rec.events)):
+                        if rec.events[i].payload.get("sample_index", -1) > c_idx:
+                            st.session_state.current_event_index = i
+                            break
+                        
+            if st.button("Jump to first event of sample"):
+                if c_idx >= 0:
+                    for i in range(st.session_state.current_event_index, -1, -1):
+                        if i == 0 or rec.events[i-1].payload.get("sample_index", -1) < c_idx:
+                            st.session_state.current_event_index = i
+                            break
+                            
+            # Update to fetch re-evaluated index if changed by buttons
             curr_ev = rec.events[st.session_state.current_event_index] if st.session_state.current_event_index >= 0 else None
+            c_idx = curr_ev.payload.get("sample_index", -1) if curr_ev else -1
+
             if curr_ev:
                 st.markdown(f"**Current Event ({st.session_state.current_event_index + 1}/{len(rec.events)})**")
-                explanation = adapter_in_use.explain_event(curr_ev)
+                explanation = get_explanation(curr_ev)
                 st.info(explanation)
                 with st.expander("Event Payload"):
                     st.json(curr_ev.payload)
 
             st.markdown("---")
-            # Group events by sample
-            sample_ids = sorted(list(set([e.payload.get("sample_index", -1) for e in rec.events if e.payload.get("sample_index", -1) != -1])))
-            if sample_ids:
-                selected_sample = st.selectbox("Inspect specific sample trace:", sample_ids, index=0)
-                sample_events = [e for e in rec.events if e.payload.get("sample_index", -1) == selected_sample]
-
-                st.write(f"**Trace for Sample {selected_sample}:**")
-                for e in sample_events:
-                    color = "blue" if e.type == EventType.RESONANCE else ("green" if e.type == EventType.CATEGORY_CREATED else "black")
-                    explanation = adapter_in_use.explain_event(e)
-                    st.markdown(f"- :{color}[{e.type.value}]: {explanation}")
+            if view_mode == "Timeline replay":
+                show_search_history(rec, c_idx)
+            else:
+                # Group events by sample
+                sample_ids = sorted(list(set([e.payload.get("sample_index", -1) for e in rec.events if e.payload.get("sample_index", -1) != -1])))
+                if sample_ids:
+                    selected_sample = st.selectbox("Inspect specific sample trace:", sample_ids, index=0)
+                    sample_events = [e for e in rec.events if e.payload.get("sample_index", -1) == selected_sample]
+    
+                    st.write(f"**Trace for Sample {selected_sample}:**")
+                    for e in sample_events:
+                        color = "blue" if e.type == EventType.RESONANCE else ("green" if e.type == EventType.CATEGORY_CREATED else "black")
+                        explanation = get_explanation(e)
+                        st.markdown(f"- :{color}[{e.type.value}]: {explanation}")
 
 if __name__ == "__main__":
     main()
