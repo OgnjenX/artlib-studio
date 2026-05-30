@@ -4,11 +4,15 @@ version = "0.1.0"
 description = "Interactive visualization and exploration studio for AdaptiveResonanceLib (ART neural networks)"
 requires-python = ">=3.11"
 dependencies = [
+    "artlib",
     "numpy",
     "matplotlib",
     "scikit-learn",
     "streamlit",
 ]
+
+[tool.uv.sources]
+artlib = { path = "../AdaptiveResonanceLib", editable = true }
 
 [project.optional-dependencies]
 dev = [
@@ -20,5 +24,4 @@ dev = [
 
 [project.urls]
 Homepage = "https://github.com/art-exploration/artlib-studio"
-
 

@@ -1,6 +1,7 @@
 import sys
 import os
 import numpy as np
+import pytest
 
 # Make AdaptiveResonanceLib and artlib_studio importable
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -11,10 +12,24 @@ if ARL_PATH not in sys.path:
 if STUDIO_PATH not in sys.path:
     sys.path.insert(0, STUDIO_PATH)
 
-from artlib.elementary.FuzzyART import FuzzyART
-from artlib_studio.instrumented_art import InstrumentedART
-from artlib_studio.events import TraceRecorder, EventType
 from sklearn.datasets import make_blobs
+from artlib.elementary.FuzzyART import FuzzyART
+from artlib.elementary.HypersphereART import HypersphereART
+from artlib_studio.instrumentation.instrumented_art import InstrumentedART
+from artlib_studio.core.events import EventType
+from artlib_studio.core.recorder import TraceRecorder
+from artlib_studio.adapters.fuzzy_art import FuzzyARTAdapter
+from artlib_studio.adapters.gaussian_art import GaussianARTAdapter
+from artlib_studio.adapters.hypersphere_art import HypersphereARTAdapter
+from artlib_studio.core.registry import get_adapter, register_adapter, list_adapters
+
+def get_tiny_dataset():
+    return np.array([
+        [0.1, 0.2],
+        [0.85, 0.9],
+        [0.15, 0.18],
+        [0.78, 0.79]
+    ])
 
 def test_instrumented_art_behavior_matches_original():
     # Generate some quick deterministic data
@@ -153,3 +168,102 @@ def test_trace_recorder_to_json():
     data = json.loads(json_str)
     assert len(data) == 1
     assert data[0]["type"] == "INPUT_RECEIVED"
+
+def test_instrumented_fuzzy_art_parity():
+    X = get_tiny_dataset()
+
+    # 1. Base model predictions
+    base_art = FuzzyART(rho=0.85, alpha=0.0, beta=1.0)
+    X_prep = base_art.prepare_data(X)
+    base_art.fit(X_prep)
+
+    # 2. Adapter predictions
+    adapter = FuzzyARTAdapter()
+    recorder = TraceRecorder()
+    instr = adapter.fit_with_trace(X, {"rho": 0.85, "alpha": 0.0, "beta": 1.0}, recorder)
+
+    # Asserts
+    assert getattr(instr.art, "n_clusters", 0) == base_art.n_clusters
+    np.testing.assert_array_equal(getattr(instr.art, "labels_", []), base_art.labels_)
+
+def test_registry_contains_fuzzy_art():
+    adapters = list_adapters()
+    keys = [a.model_key for a in adapters]
+    assert "fuzzy_art" in keys
+
+def test_registry_contains_hypersphere_art():
+    adapters = list_adapters()
+    keys = [a.model_key for a in adapters]
+    assert "hypersphere_art" in keys
+
+def test_fuzzy_art_adapter_capabilities():
+    adapter = get_adapter("fuzzy_art")
+    assert adapter.name == "Fuzzy ART"
+
+    default_params = adapter.default_params()
+    assert "rho" in default_params
+
+    caps = adapter.capabilities
+
+    from artlib_studio.core.capabilities import Capability
+    assert Capability.CATEGORY_BOXES_2D in caps
+    assert Capability.TRACE_EXECUTION in caps
+
+def test_hypersphere_art_adapter_capabilities():
+    adapter = get_adapter("hypersphere_art")
+    assert adapter.name == "Hypersphere ART"
+
+    default_params = adapter.default_params()
+    assert "rho" in default_params
+    assert "r_hat" in default_params
+
+    caps = adapter.capabilities
+
+    from artlib_studio.core.capabilities import Capability
+    assert Capability.HYPERSPHERE_REGIONS_2D in caps
+    assert Capability.TRACE_EXECUTION in caps
+    assert Capability.CATEGORY_PROTOTYPES in caps
+
+def test_instrumented_gaussian_art_runs_with_numpy_2():
+    X = get_tiny_dataset()
+    adapter = GaussianARTAdapter()
+    params = {"rho": 0.5, "alpha": 1e-10, "sigma_init_scalar": 0.1}
+    recorder = TraceRecorder()
+
+    instr = adapter.fit_with_trace(X, params, recorder)
+
+    assert getattr(instr.art, "n_clusters", 0) > 0
+    assert len(getattr(instr.art, "labels_", [])) == len(X)
+    assert recorder.events
+
+def test_instrumented_hypersphere_art_parity():
+    X = get_tiny_dataset()
+    params = {"rho": 0.75, "alpha": 0.0001, "beta": 1.0, "r_hat": 1.0}
+
+    base_art = HypersphereART(**params)
+    base_art.fit(X)
+
+    adapter = HypersphereARTAdapter()
+    recorder = TraceRecorder()
+    instr = adapter.fit_with_trace(X, params.copy(), recorder)
+
+    assert getattr(instr.art, "n_clusters", 0) == base_art.n_clusters
+    np.testing.assert_array_equal(getattr(instr.art, "labels_", []), base_art.labels_)
+
+    for expected, actual in zip(base_art.W, instr.art.W):
+        np.testing.assert_allclose(actual, expected)
+
+def test_hypersphere_art_geometry_uses_centroid_and_radius():
+    X = get_tiny_dataset()
+    params = {"rho": 0.75, "alpha": 0.0001, "beta": 1.0, "r_hat": 1.0}
+    adapter = HypersphereARTAdapter()
+    instr = adapter.fit_with_trace(X, params, TraceRecorder())
+
+    spheres = adapter.get_category_geometry_2d(instr.art)
+
+    assert spheres
+    for sphere, weight in zip(spheres, instr.art.W):
+        assert set(sphere) == {"id", "x", "y", "radius"}
+        assert sphere["x"] == pytest.approx(weight[0])
+        assert sphere["y"] == pytest.approx(weight[1])
+        assert sphere["radius"] == pytest.approx(weight[-1])

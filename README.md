@@ -1,15 +1,47 @@
-# artlib-studio
-Interactive visual environment for exploring, debugging, and composing Adaptive Resonance Theory (ART) systems.
+# ARTLib Studio
+
+**ARTLib Studio** is an interactive execution explorer and instrumentation framework for [AdaptiveResonanceLib](https://github.com/NiklasMelton/AdaptiveResonanceLib).
 
 ## Current status:
-* Instrumented Fuzzy ART
-* Trace recorder (with JSON export capability)
-* Step-by-step textual trace (`examples/trace_fuzzy_art_step_by_step.py`)
-* JSON trace export (`examples/export_fuzzy_art_trace.py`)
-* Streamlit prototype explorer (`artlib_studio/streamlit_app.py`)
-* **ART Internals Inspector (v0.3)**:
-  * Category competition table
-  * Choice/match/vigilance visualization
-  * Conceptual F1/F2 view
-  * Search history trace
-  * Learning update inspector
+
+* FuzzyART adapter
+* Gaussian ART adapter
+* Hypersphere ART adapter
+* adapter registry
+* capability-aware visualization
+* trace recorder
+* Streamlit explorer
+
+## Planned:
+
+* ART1
+* TopoART
+* ARTMAP / supervised models
+
+## Prerequisites
+* Python >= 3.11
+* [NumPy](https://numpy.org/)
+* [matplotlib](https://matplotlib.org/)
+* [scikit-learn](https://scikit-learn.org/)
+* [streamlit](https://streamlit.io/)
+
+## Setup & Installation
+
+Clone both `AdaptiveResonanceLib` and `artlib-studio` into the same parent dimension (or adjust paths accordingly). From inside `artlib-studio`:
+
+```bash
+pip install -e ../AdaptiveResonanceLib
+pip install -e ".[dev]"
+```
+
+## Running Tests
+
+```bash
+pytest
+```
+
+## Running the Explorer
+
+```bash
+streamlit run artlib_studio/apps/streamlit_app.py
+```

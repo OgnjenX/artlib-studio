@@ -1,18 +1,19 @@
-# Architecture
+# ARTLib Studio Architecture
 
-The studio is intended to sit beside AdaptiveResonanceLib and observe the model lifecycle without modifying the core library.
+AdaptiveResonanceLib
+↓
+ARTLib Studio Adapter
+↓
+Instrumentation / TraceRecorder
+↓
+Event Stream
+↓
+Capability-aware Visualization
 
-```mermaid
-flowchart TD
-    A[AdaptiveResonanceLib] --> B[Instrumentation Layer]
-    B --> C[Event Stream]
-    C --> D[Visualization Layer]
-```
+## Why adapters?
 
-AdaptiveResonanceLib provides the ART algorithms and fitting behavior.
-
-The instrumentation layer will later intercept model activity, state changes, and category formation.
-
-The event stream will expose those observations in a structured, time-ordered form for downstream consumers.
-
-The visualization layer will subscribe to the stream and render the interactive studio experience.
+* different ART models expose different internals
+* not every ART model has 2D category boxes
+* not every model uses the same data representation
+* compound models may require specialized adapters
+* capability-based rendering avoids misleading visualizations

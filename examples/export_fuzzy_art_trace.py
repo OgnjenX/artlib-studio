@@ -1,7 +1,7 @@
 import os
 import sys
+
 import numpy as np
-import json
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 ARL_PATH = os.path.join(ROOT, "AdaptiveResonanceLib")
@@ -11,9 +11,8 @@ if ARL_PATH not in sys.path:
 if STUDIO_PATH not in sys.path:
     sys.path.insert(0, STUDIO_PATH)
 
-from artlib.elementary.FuzzyART import FuzzyART
-from artlib_studio.instrumented_art import InstrumentedART
-from artlib_studio.events import TraceRecorder
+from artlib_studio.core.registry import get_adapter
+from artlib_studio.core.recorder import TraceRecorder
 
 def main():
     X = np.array([
@@ -24,9 +23,9 @@ def main():
     ])
 
     recorder = TraceRecorder()
-    art = FuzzyART(rho=0.85, alpha=0.0, beta=1.0)
-    instr_art = InstrumentedART(art, recorder=recorder)
-    instr_art.fit(X)
+    adapter = get_adapter("fuzzy_art")
+    params = {"rho": 0.85, "alpha": 0.0, "beta": 1.0}
+    adapter.fit_with_trace(X, params, recorder=recorder)
 
     output_dir = os.path.join(os.path.dirname(__file__), "output")
     os.makedirs(output_dir, exist_ok=True)
@@ -39,4 +38,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

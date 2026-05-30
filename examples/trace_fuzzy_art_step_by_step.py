@@ -10,9 +10,8 @@ if ARL_PATH not in sys.path:
 if STUDIO_PATH not in sys.path:
     sys.path.insert(0, STUDIO_PATH)
 
-from artlib.elementary.FuzzyART import FuzzyART
-from artlib_studio.instrumented_art import InstrumentedART
-from artlib_studio.events import TraceRecorder
+from artlib_studio.core.registry import get_adapter
+from artlib_studio.core.recorder import TraceRecorder
 
 def main():
     # Tiny 2D synthetic dataset
@@ -24,14 +23,12 @@ def main():
     ])
 
     recorder = TraceRecorder()
-    art = FuzzyART(rho=0.85, alpha=0.0, beta=1.0)
-
-    # We create InstrumentedART to run the trace
-    instr_art = InstrumentedART(art, recorder=recorder)
+    adapter = get_adapter("fuzzy_art")
+    params = {"rho": 0.85, "alpha": 0.0, "beta": 1.0}
 
     print("Fuzzy ART Training Trace\n" + "="*24 + "\n")
 
-    instr_art.fit(X)
+    adapter.fit_with_trace(X, params, recorder=recorder)
 
     # Group events by sample
     grouped = {}
@@ -48,7 +45,7 @@ def main():
         x_val = [round(float(v), 2) for v in X[sample_idx]]
         print(f"Sample {sample_idx}: {x_val}")
         for i, ev in enumerate(events, 1):
-            explanation = ev.payload.get("explanation", f"Event: {ev.type.value}")
+            explanation = adapter.explain_event(ev)
             print(f"  {i}. {explanation}")
         print()
 

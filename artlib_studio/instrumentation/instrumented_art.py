@@ -1,27 +1,28 @@
-"""An instrumented wrapper around ART modules from AdaptiveResonanceLib.
-
-This wrapper delegates to an existing ART instance (e.g. FuzzyART) but emits
-events to a TraceRecorder so the explorer UI can visualize internal execution
-without modifying the original AdaptiveResonanceLib code.
-"""
-from typing import Optional, Callable, Any
+"""Instrumentation for ARTLib BaseART-style models."""
+from __future__ import annotations
+import inspect
+from typing import Any, Callable, Optional
 import numpy as np
-from artlib_studio.events import (
-    TraceRecorder,
-    EventType,
-)
+
+from artlib.common.BaseART import BaseART
+
+from ..core.events import EventType
+from ..core.recorder import TraceRecorder
 
 
 class InstrumentedART:
-    """Wraps an ART instance and records execution events.
+    """Non-intrusive wrapper that injects instrumentation into ART methods.
 
-    The wrapper implements a step_fit surface compatible with BaseART.step_fit
-    semantics but emits events during execution.
+    It currently instruments models that follow ARTLib BaseART-style methods
+    (e.g. `_match_criterion`, `_resonance_criterion`, `_update_parameters`, `_add_node`).
+    Compound, supervised, or multi-channel models may need specialized adapters.
+
+    Behavior must remain equivalent to the wrapped ART model.
     """
-
-    def __init__(self, art_instance: Any, recorder: Optional[TraceRecorder] = None):
-        self.art = art_instance
+    def __init__(self, art: BaseART, recorder: TraceRecorder = None, prepare_data: bool = True):
+        self.art = art
         self.recorder = recorder or TraceRecorder()
+        self._prepare_data = prepare_data
 
     # convenience passthrough
     def __getattr__(self, key):
@@ -242,10 +243,12 @@ class InstrumentedART:
         Returns the wrapped art instance for chaining.
         """
         X_raw = X
-        # If the underlying ART has prepare_data, call it
-        try:
-            Xp = self.art.prepare_data(X)
-        except Exception:
+        if self._prepare_data:
+            try:
+                Xp = self.art.prepare_data(X)
+            except Exception:
+                Xp = X
+        else:
             Xp = X
 
         if hasattr(self.art, "validate_data"):

@@ -1,7 +1,16 @@
-# Execution Explorer — design notes
+# Execution Explorer
 
-This document explains how the v0.3 Execution Explorer exposes Fuzzy ART
-internal execution to a human user.
+The Execution Explorer is a visual tool built with Streamlit to trace and understand the step-by-step behavior of ART models.
+
+Fuzzy ART is currently the first supported adapter.
+
+## Setup
+
+Run the explorer using Streamlit:
+
+```bash
+streamlit run artlib_studio/apps/streamlit_app.py
+```
 
 ## What the Execution Explorer Shows
 
