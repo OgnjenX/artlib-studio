@@ -3,7 +3,12 @@ name = "artlib-studio"
 version = "0.1.0"
 description = "Interactive visualization and exploration studio for AdaptiveResonanceLib (ART neural networks)"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "numpy",
+    "matplotlib",
+    "scikit-learn",
+    "streamlit",
+]
 
 [project.optional-dependencies]
 dev = [
