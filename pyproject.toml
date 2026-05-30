@@ -1,0 +1,19 @@
+[project]
+name = "artlib-studio"
+version = "0.1.0"
+description = "Interactive visualization and exploration studio for AdaptiveResonanceLib (ART neural networks)"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "black>=23.0",
+    "isort>=5.12",
+    "flake8>=6.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/art-exploration/artlib-studio"
+
+
