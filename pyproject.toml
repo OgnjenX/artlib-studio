@@ -23,5 +23,8 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/art-exploration/artlib-studio"
+Homepage = "https://github.com/OgnjenX/artlib-studio"
 
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"

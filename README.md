@@ -27,7 +27,7 @@
 
 ## Setup & Installation
 
-Clone both `AdaptiveResonanceLib` and `artlib-studio` into the same parent dimension (or adjust paths accordingly). From inside `artlib-studio`:
+Clone both `AdaptiveResonanceLib` and `artlib-studio` into the same parent directory (or adjust paths accordingly). From inside `artlib-studio`:
 
 ```bash
 pip install -e ../AdaptiveResonanceLib
@@ -56,7 +56,7 @@ Currently implemented features:
 * Execution trace recording to memory and JSON
 * Educational step-by-step Streamlit app
 * Modular event-based visualization architecture
-* Llive event tracker
+* Live event tracker
 * Timeline replay
 * Final-state view toggle
 * Processed/future sample distinction

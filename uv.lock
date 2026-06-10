@@ -65,7 +65,7 @@ provides-extras = ["torch"]
 [[package]]
 name = "artlib-studio"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "artlib" },
     { name = "matplotlib" },
