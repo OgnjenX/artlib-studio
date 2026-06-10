@@ -1,5 +1,6 @@
 """Composable ART module protocol and graph runtime."""
 
+from .association_memory import AssociationMemory
 from .edges import EdgeType, ModuleEdge
 from .events import CompositionEvent, CompositionEventType
 from .graph import ARTCompositionGraph
@@ -15,6 +16,7 @@ from .signals import (
     SelectedCategorySignal,
 )
 from .transforms import (
+    high_category_to_expectation,
     selected_category_to_activation_vector,
     selected_category_to_one_hot,
     selected_category_to_scalar_vector,
@@ -22,6 +24,7 @@ from .transforms import (
 
 __all__ = [
     "ARTCompositionGraph",
+    "AssociationMemory",
     "AdapterARTModule",
     "CategoryActivationSignal",
     "ComposableARTModule",
@@ -36,6 +39,7 @@ __all__ = [
     "ResetSignal",
     "ResonanceSignal",
     "SelectedCategorySignal",
+    "high_category_to_expectation",
     "selected_category_to_activation_vector",
     "selected_category_to_one_hot",
     "selected_category_to_scalar_vector",

@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from typing import Dict, Iterable, List, Union
 
+from .association_memory import AssociationMemory
 from .edges import ModuleEdge
 from .events import CompositionEvent
 from .module import ComposableARTModule
@@ -17,6 +18,7 @@ class ARTCompositionGraph:
         self.modules: Dict[str, ComposableARTModule] = {}
         self.edges: List[ModuleEdge] = []
         self.scheduler = DiscreteScheduler(max_settling_steps=max_settling_steps)
+        self.association_memory = AssociationMemory()
         self._event_log: List[CompositionEvent] = []
 
     def add_module(self, module: ComposableARTModule) -> None:
@@ -52,6 +54,7 @@ class ARTCompositionGraph:
             },
             "edge_count": len(self.edges),
             "event_count": len(self._event_log),
+            "associations": self.association_memory.to_dict(),
         }
 
     def get_event_log(self) -> List[CompositionEvent]:

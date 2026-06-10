@@ -9,8 +9,10 @@ from .signals import (
     CategoryActivationSignal,
     CompositionSignal,
     InputSignal,
+    ExpectationSignal,
     SelectedCategorySignal,
 )
+from .association_memory import AssociationMemory
 
 
 def selected_category_to_one_hot(
@@ -91,4 +93,39 @@ def selected_category_to_activation_vector(
         step_index=signal.step_index,
         payload={"input": encoded, "representation": "activation_vector"},
         summary=f"Category activations forwarded as input {encoded}.",
+    )
+
+
+def high_category_to_expectation(
+    signal: CompositionSignal,
+    association_memory: AssociationMemory,
+) -> Optional[ExpectationSignal]:
+    """Convert a high-level selection into an association-backed expectation."""
+    if not isinstance(signal, SelectedCategorySignal):
+        return None
+    high_category = int(signal.payload["category_id"])
+    expected = sorted(
+        association_memory.get_expected_low_level_categories(high_category)
+    )
+    if expected:
+        explanation = (
+            f"High-level category {high_category} expects low-level categories "
+            f"{expected}."
+        )
+    else:
+        explanation = (
+            f"High-level category {high_category} has no learned low-level "
+            "expectation yet."
+        )
+    return ExpectationSignal(
+        source_module_id=signal.source_module_id,
+        step_index=signal.step_index,
+        expected_category_id=expected[0] if len(expected) == 1 else None,
+        confidence=1.0 if expected else 0.0,
+        payload={
+            "high_level_category_id": high_category,
+            "expected_category_ids": expected,
+        },
+        summary=explanation,
+        explanation=explanation,
     )

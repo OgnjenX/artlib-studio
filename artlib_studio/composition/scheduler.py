@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Dict, Iterable, List, TYPE_CHECKING
+from typing import Dict, Iterable, List, Set, Tuple, TYPE_CHECKING
 
+from .edges import EdgeType
 from .events import CompositionEvent, CompositionEventType
 from .signals import (
     CompositionSignal,
+    ExpectationSignal,
     InputSignal,
     LearningSignal,
     ResetSignal,
@@ -31,8 +33,14 @@ class DiscreteScheduler:
         input_signals: Iterable[CompositionSignal],
     ) -> bool:
         pending = list(input_signals)
+        pending_associations: Set[Tuple[int, int]] = set()
         for settling_step in range(self.max_settling_steps):
             if not pending:
+                for high_category, low_category in pending_associations:
+                    graph.association_memory.record_pair(
+                        high_category,
+                        low_category,
+                    )
                 graph._record(
                     CompositionEvent(
                         CompositionEventType.GRAPH_SETTLED,
@@ -81,6 +89,8 @@ class DiscreteScheduler:
                                 },
                             )
                         )
+                    elif isinstance(delivered, ExpectationSignal):
+                        self._evaluate_expectation(graph, target, delivered)
 
             emitted: List[CompositionSignal] = []
             for module_id in recipients:
@@ -89,6 +99,9 @@ class DiscreteScheduler:
                 outputs = module.get_output_signals()
                 emitted.extend(outputs)
                 self._record_module_outputs(graph, module_id, outputs)
+                pending_associations.update(
+                    self._association_pairs_for_outputs(graph, module_id, outputs)
+                )
 
             pending = []
             for signal in emitted:
@@ -113,6 +126,20 @@ class DiscreteScheduler:
                             },
                         )
                     )
+                    if isinstance(transmitted, ExpectationSignal):
+                        graph._record(
+                            CompositionEvent(
+                                CompositionEventType.EXPECTATION_SENT,
+                                self.step_index,
+                                module_id=signal.source_module_id,
+                                payload={
+                                    "target_module_id": edge.target_module_id,
+                                    **dict(transmitted.payload),
+                                    "confidence": transmitted.confidence,
+                                    "explanation": transmitted.explanation,
+                                },
+                            )
+                        )
 
         graph._record(
             CompositionEvent(
@@ -123,6 +150,135 @@ class DiscreteScheduler:
         )
         self.step_index += 1
         return False
+
+    def _association_pairs_for_outputs(
+        self,
+        graph: "ARTCompositionGraph",
+        module_id: str,
+        outputs: List[CompositionSignal],
+    ) -> Set[Tuple[int, int]]:
+        high_categories = [
+            int(signal.payload["category_id"])
+            for signal in outputs
+            if isinstance(signal, SelectedCategorySignal)
+        ]
+        if not high_categories:
+            return set()
+
+        pairs = set()
+        top_down_targets = {
+            edge.target_module_id
+            for edge in graph.outgoing_edges(module_id)
+            if edge.edge_type == EdgeType.TOP_DOWN_EXPECTATION
+        }
+        for low_module_id in top_down_targets:
+            low_category = graph.get_module(low_module_id).get_state().get(
+                "selected_category"
+            )
+            if low_category is not None:
+                pairs.add((high_categories[-1], int(low_category)))
+        return pairs
+
+    def _evaluate_expectation(
+        self,
+        graph: "ARTCompositionGraph",
+        target_module_id: str,
+        signal: ExpectationSignal,
+    ) -> None:
+        expected = signal.expected_category_ids
+        current = graph.get_module(target_module_id).get_state().get(
+            "selected_category"
+        )
+        explanation = signal.explanation or signal.summary or ""
+        if not expected:
+            matched = None
+            explanation = (
+                explanation
+                or "No prior expectation is available for this high-level category."
+            )
+            payload = {
+                **dict(signal.payload),
+                "source_module_id": signal.source_module_id,
+                "target_module_id": target_module_id,
+                "current_low_level_category_id": current,
+                "matched": matched,
+                "confidence": signal.confidence,
+                "explanation": explanation,
+            }
+            graph._record(
+                CompositionEvent(
+                    CompositionEventType.EXPECTATION_RECEIVED,
+                    self.step_index,
+                    module_id=target_module_id,
+                    payload=payload,
+                )
+            )
+            graph._record(
+                CompositionEvent(
+                    CompositionEventType.EXPECTATION_UNAVAILABLE,
+                    self.step_index,
+                    module_id=target_module_id,
+                    payload=payload,
+                )
+            )
+            graph._record(
+                CompositionEvent(
+                    CompositionEventType.CROSS_MODULE_EXPECTATION_UNKNOWN,
+                    self.step_index,
+                    payload=payload,
+                )
+            )
+            return
+
+        matched = current is not None and int(current) in expected
+        explanation = (
+            explanation
+            or (
+                "Expectation matched."
+                if matched
+                else "Expectation was violated."
+            )
+        )
+        payload = {
+            **dict(signal.payload),
+            "source_module_id": signal.source_module_id,
+            "target_module_id": target_module_id,
+            "current_low_level_category_id": current,
+            "matched": matched,
+            "confidence": signal.confidence,
+            "explanation": explanation,
+        }
+        graph._record(
+            CompositionEvent(
+                CompositionEventType.EXPECTATION_RECEIVED,
+                self.step_index,
+                module_id=target_module_id,
+                payload=payload,
+            )
+        )
+        graph._record(
+            CompositionEvent(
+                (
+                    CompositionEventType.EXPECTATION_MATCHED
+                    if matched
+                    else CompositionEventType.EXPECTATION_MISMATCHED
+                ),
+                self.step_index,
+                module_id=target_module_id,
+                payload=payload,
+            )
+        )
+        graph._record(
+            CompositionEvent(
+                (
+                    CompositionEventType.CROSS_MODULE_RESONANCE
+                    if matched
+                    else CompositionEventType.CROSS_MODULE_MISMATCH
+                ),
+                self.step_index,
+                payload=payload,
+            )
+        )
 
     def _record_module_outputs(
         self,

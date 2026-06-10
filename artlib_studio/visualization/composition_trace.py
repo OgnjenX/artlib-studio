@@ -88,3 +88,99 @@ def summarize_graph_step(
             for event in matching
         ),
     }
+
+
+def build_expectation_table(trace: Iterable[TraceEvent]) -> List[Dict[str, Any]]:
+    """Build rows for top-down expectations and their evaluation."""
+    expectation_types = {
+        CompositionEventType.EXPECTATION_SENT.value,
+        CompositionEventType.EXPECTATION_RECEIVED.value,
+        CompositionEventType.EXPECTATION_UNAVAILABLE.value,
+        CompositionEventType.EXPECTATION_MATCHED.value,
+        CompositionEventType.EXPECTATION_MISMATCHED.value,
+    }
+    rows = []
+    for event in trace:
+        data = _event_dict(event)
+        if data.get("type") not in expectation_types:
+            continue
+        payload = data.get("payload", {})
+        rows.append(
+            {
+                "sample_index": data.get(
+                    "external_sample_index", data.get("step_index")
+                ),
+                "event_type": data["type"],
+                "module_id": data.get("module_id"),
+                "source_module_id": payload.get("source_module_id"),
+                "target_module_id": payload.get("target_module_id"),
+                "high_level_category_id": payload.get("high_level_category_id"),
+                "expected_category_ids": payload.get(
+                    "expected_category_ids", []
+                ),
+                "current_low_level_category_id": payload.get(
+                    "current_low_level_category_id"
+                ),
+                "matched": payload.get("matched"),
+                "confidence": payload.get("confidence"),
+            }
+        )
+    return rows
+
+
+def build_cross_module_resonance_table(
+    trace: Iterable[TraceEvent],
+) -> List[Dict[str, Any]]:
+    """Build one row per cross-module resonance or mismatch result."""
+    result_types = {
+        CompositionEventType.CROSS_MODULE_EXPECTATION_UNKNOWN.value,
+        CompositionEventType.CROSS_MODULE_RESONANCE.value,
+        CompositionEventType.CROSS_MODULE_MISMATCH.value,
+    }
+    rows = []
+    for event in trace:
+        data = _event_dict(event)
+        if data.get("type") not in result_types:
+            continue
+        payload = data.get("payload", {})
+        rows.append(
+            {
+                "sample_index": data.get(
+                    "external_sample_index", data.get("step_index")
+                ),
+                "result": data["type"],
+                "high_level_category_id": payload.get("high_level_category_id"),
+                "expected_category_ids": payload.get(
+                    "expected_category_ids", []
+                ),
+                "current_low_level_category_id": payload.get(
+                    "current_low_level_category_id"
+                ),
+                "matched": payload.get("matched"),
+            }
+        )
+    return rows
+
+
+def summarize_bidirectional_step(
+    trace: Iterable[TraceEvent],
+    sample_index: int,
+) -> Dict[str, Any]:
+    """Summarize selections, expectation, and cross-module result."""
+    base = summarize_graph_step(trace, sample_index)
+    expectations = [
+        row
+        for row in build_expectation_table(base["events"])
+        if row["event_type"]
+        in {
+            CompositionEventType.EXPECTATION_UNAVAILABLE.value,
+            CompositionEventType.EXPECTATION_MATCHED.value,
+            CompositionEventType.EXPECTATION_MISMATCHED.value,
+        }
+    ]
+    results = build_cross_module_resonance_table(base["events"])
+    return {
+        **base,
+        "expectation": expectations[-1] if expectations else None,
+        "cross_module_result": results[-1] if results else None,
+    }

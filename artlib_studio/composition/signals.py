@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 
 @dataclass(frozen=True)
@@ -35,7 +35,19 @@ class SelectedCategorySignal(CompositionSignal):
 
 @dataclass(frozen=True)
 class ExpectationSignal(CompositionSignal):
-    pass
+    expected_category_id: Optional[int] = None
+    expected_activation_vector: Optional[List[float]] = None
+    confidence: Optional[float] = None
+    explanation: str = ""
+
+    @property
+    def expected_category_ids(self) -> List[int]:
+        values = self.payload.get("expected_category_ids")
+        if values is not None:
+            return [int(value) for value in values]
+        if self.expected_category_id is not None:
+            return [int(self.expected_category_id)]
+        return []
 
 
 @dataclass(frozen=True)

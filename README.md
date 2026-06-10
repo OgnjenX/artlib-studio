@@ -69,6 +69,8 @@ Currently implemented features:
 * ART composition protocol
 * Two-level feed-forward Fuzzy ART pipeline demo
 * Graph-level composition event trace and JSON export
+* Bidirectional association-based expectation prototype
+* Cross-module resonance and mismatch tracing
 
 ## How to use
 

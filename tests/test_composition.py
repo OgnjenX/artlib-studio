@@ -4,23 +4,29 @@ from typing import Any, Dict, List
 
 from artlib_studio.adapters.fuzzy_art import FuzzyARTAdapter
 from artlib_studio.composition.edges import EdgeType, ModuleEdge
+from artlib_studio.composition.association_memory import AssociationMemory
 from artlib_studio.composition.events import CompositionEventType
 from artlib_studio.composition.graph import ARTCompositionGraph
 from artlib_studio.composition.module import AdapterARTModule, ComposableARTModule
 from artlib_studio.composition.signals import (
     CompositionSignal,
     InputSignal,
+    ExpectationSignal,
     SelectedCategorySignal,
 )
 from artlib_studio.composition.transforms import (
+    high_category_to_expectation,
     selected_category_to_one_hot,
     selected_category_to_scalar_vector,
 )
 from artlib_studio.core.events import EventType
 from artlib_studio.visualization.composition_trace import (
+    build_cross_module_resonance_table,
+    build_expectation_table,
     build_module_timeline,
     build_signal_flow_table,
     summarize_graph_step,
+    summarize_bidirectional_step,
 )
 
 
@@ -278,3 +284,105 @@ def test_composition_trace_helpers_and_json_export(tmp_path):
         event["type"] == CompositionEventType.MODULE_CATEGORY_CREATED.value
         for event in exported
     )
+
+
+def test_expectation_signal_and_association_memory():
+    signal = ExpectationSignal(
+        source_module_id="high",
+        target_module_id="low",
+        expected_category_id=2,
+        confidence=0.8,
+        payload={"expected_category_ids": [2, 3]},
+        explanation="Expected low-level categories 2 or 3.",
+    )
+    memory = AssociationMemory()
+    memory.record_pair(1, 2)
+    memory.record_pair(1, 3)
+
+    assert signal.expected_category_ids == [2, 3]
+    assert signal.confidence == 0.8
+    assert memory.get_expected_low_level_categories(1) == {2, 3}
+    assert memory.match_expectation(1, 2) is True
+    assert memory.match_expectation(1, 4) is False
+
+
+def _build_bidirectional_test_graph(expected_low_category):
+    graph, low, high = _build_two_level_test_graph()
+    graph.add_edge(
+        ModuleEdge(
+            "high",
+            "low",
+            EdgeType.TOP_DOWN_EXPECTATION,
+            transform=partial(
+                high_category_to_expectation,
+                association_memory=graph.association_memory,
+            ),
+            transform_name="high_category_to_expectation",
+        )
+    )
+    graph.association_memory.record_pair(0, expected_low_category)
+    return graph, low, high
+
+
+def test_scheduler_emits_cross_module_resonance_for_match():
+    graph, _, _ = _build_bidirectional_test_graph(expected_low_category=0)
+    graph.step(
+        [InputSignal("environment", target_module_id="low", payload={"input": [0.1, 0.2]})]
+    )
+    event_types = [event.type for event in graph.get_event_log()]
+
+    assert CompositionEventType.EXPECTATION_SENT in event_types
+    assert CompositionEventType.EXPECTATION_RECEIVED in event_types
+    assert CompositionEventType.EXPECTATION_MATCHED in event_types
+    assert CompositionEventType.CROSS_MODULE_RESONANCE in event_types
+
+
+def test_scheduler_emits_expectation_unknown_when_no_prior_association():
+    graph, _, _ = _build_two_level_test_graph()
+    graph.add_edge(
+        ModuleEdge(
+            "high",
+            "low",
+            EdgeType.TOP_DOWN_EXPECTATION,
+            transform=partial(
+                high_category_to_expectation,
+                association_memory=graph.association_memory,
+            ),
+            transform_name="high_category_to_expectation",
+        )
+    )
+
+    graph.step(
+        [InputSignal("environment", target_module_id="low", payload={"input": [0.1, 0.2]})]
+    )
+    event_types = [event.type for event in graph.get_event_log()]
+    expectation_rows = build_expectation_table(graph.get_event_log())
+    resonance_rows = build_cross_module_resonance_table(graph.get_event_log())
+    summary = summarize_bidirectional_step(graph.get_event_log(), 0)
+
+    assert CompositionEventType.EXPECTATION_UNAVAILABLE in event_types
+    assert CompositionEventType.CROSS_MODULE_EXPECTATION_UNKNOWN in event_types
+    assert expectation_rows[-1]["matched"] is None
+    assert resonance_rows[-1]["result"] == "CROSS_MODULE_EXPECTATION_UNKNOWN"
+    assert summary["cross_module_result"]["result"] == "CROSS_MODULE_EXPECTATION_UNKNOWN"
+
+
+def test_scheduler_emits_cross_module_mismatch_and_exports_json(tmp_path):
+    graph, _, _ = _build_bidirectional_test_graph(expected_low_category=3)
+    graph.step(
+        [InputSignal("environment", target_module_id="low", payload={"input": [0.1, 0.2]})]
+    )
+    event_types = [event.type for event in graph.get_event_log()]
+    output_path = graph.export_event_log_json(tmp_path / "bidirectional.json")
+    exported = json.loads(output_path.read_text(encoding="utf-8"))
+
+    assert CompositionEventType.EXPECTATION_MISMATCHED in event_types
+    assert CompositionEventType.CROSS_MODULE_MISMATCH in event_types
+    assert any(event["type"] == "EXPECTATION_SENT" for event in exported)
+
+    expectation_rows = build_expectation_table(graph.get_event_log())
+    resonance_rows = build_cross_module_resonance_table(graph.get_event_log())
+    summary = summarize_bidirectional_step(graph.get_event_log(), 0)
+    assert expectation_rows[-1]["matched"] is False
+    assert resonance_rows[-1]["result"] == "CROSS_MODULE_MISMATCH"
+    assert summary["cross_module_result"]["matched"] is False

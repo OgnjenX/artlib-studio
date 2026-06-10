@@ -111,3 +111,50 @@ Run the experiment and export its graph trace with:
 python examples/two_level_fuzzy_art_pipeline.py
 python examples/export_two_level_composition_trace.py
 ```
+
+## Bidirectional Expectation Prototype
+
+The bidirectional prototype adds a simplified top-down path:
+
+```text
+2D input -> low-level category -> high-level category
+                ^                       |
+                |---- expectation ------|
+```
+
+Bottom-up recognition is unchanged: the low-level Fuzzy ART selects a category,
+its identity is encoded as a one-hot vector, and the high-level Fuzzy ART
+selects a category over that representation.
+
+An `AssociationMemory` records observed pairs of high-level and low-level
+category IDs. When a high-level category becomes active, the top-down edge
+emits an `ExpectationSignal` containing the low-level categories previously
+associated with it. The scheduler compares that expected set with the
+low-level module's current category.
+
+If the expected set is empty, the graph records `EXPECTATION_UNAVAILABLE` and
+`CROSS_MODULE_EXPECTATION_UNKNOWN`.
+
+If the current category is expected, the graph records
+`EXPECTATION_MATCHED` and `CROSS_MODULE_RESONANCE`.
+
+If the expected set is non-empty but the current category is not in it, the
+graph records `EXPECTATION_MISMATCHED` and `CROSS_MODULE_MISMATCH`.
+
+Association updates are committed after expectation evaluation, so the first
+occurrence of a new high-level / low-level pair is reported as unknown
+expectation rather than mismatch.
+
+This association lookup is an explicit educational mechanism. It is not a
+learned top-down Fuzzy ART prototype, does not modify low-level vigilance or
+category search, and does not implement synchronized neural dynamics.
+
+This prototype demonstrates the idea of cross-module expectation and
+resonance, but it is not yet a full recurrent neural ART circuit.
+
+Run it with:
+
+```bash
+python examples/bidirectional_expectation_demo.py
+python examples/export_bidirectional_trace.py
+```
