@@ -206,8 +206,7 @@ class InstrumentedART:
                     self.art._set_params(base_params)
                 return c_
             else:
-                if m and not no_match_reset:
-                    # RESET event
+                if not m or not no_match_reset:
                     resets.append(int(c_))
                     self.recorder.record(
                         EventType.RESET, 
@@ -218,6 +217,7 @@ class InstrumentedART:
                             "explanation": f"Reset category {c_}."
                         }
                     )
+                if m and not no_match_reset:
                     keep_searching = self.art._match_tracking(cache, epsilon, self.art.params, match_tracking)
                     if not keep_searching:
                         break

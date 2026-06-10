@@ -14,6 +14,11 @@ from .signals import (
     ResonanceSignal,
     SelectedCategorySignal,
 )
+from .transforms import (
+    selected_category_to_activation_vector,
+    selected_category_to_one_hot,
+    selected_category_to_scalar_vector,
+)
 
 __all__ = [
     "ARTCompositionGraph",
@@ -31,4 +36,7 @@ __all__ = [
     "ResetSignal",
     "ResonanceSignal",
     "SelectedCategorySignal",
+    "selected_category_to_activation_vector",
+    "selected_category_to_one_hot",
+    "selected_category_to_scalar_vector",
 ]

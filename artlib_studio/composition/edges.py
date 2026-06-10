@@ -16,7 +16,7 @@ class EdgeType(str, Enum):
     RESET_PROPAGATION = "RESET_PROPAGATION"
 
 
-SignalTransform = Callable[[CompositionSignal], CompositionSignal]
+SignalTransform = Callable[[CompositionSignal], Optional[CompositionSignal]]
 
 
 @dataclass(frozen=True)
@@ -27,6 +27,8 @@ class ModuleEdge:
     transform: Optional[SignalTransform] = None
     transform_name: Optional[str] = None
 
-    def transmit(self, signal: CompositionSignal) -> CompositionSignal:
+    def transmit(self, signal: CompositionSignal) -> Optional[CompositionSignal]:
         transformed = self.transform(signal) if self.transform else signal
+        if transformed is None:
+            return None
         return transformed.for_target(self.target_module_id)

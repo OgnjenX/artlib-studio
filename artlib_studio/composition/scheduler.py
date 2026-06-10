@@ -7,6 +7,7 @@ from typing import Dict, Iterable, List, TYPE_CHECKING
 from .events import CompositionEvent, CompositionEventType
 from .signals import (
     CompositionSignal,
+    InputSignal,
     LearningSignal,
     ResetSignal,
     ResonanceSignal,
@@ -59,16 +60,25 @@ class DiscreteScheduler:
                             CompositionEventType.SIGNAL_RECEIVED,
                             self.step_index,
                             module_id=target,
-                            payload={"signal_type": type(delivered).__name__},
+                            payload={
+                                "source_module_id": delivered.source_module_id,
+                                "target_module_id": target,
+                                "signal_type": type(delivered).__name__,
+                                "signal_payload": dict(delivered.payload),
+                                "summary": delivered.summary,
+                            },
                         )
                     )
-                    if delivered.__class__.__name__ == "InputSignal":
+                    if isinstance(delivered, InputSignal):
                         graph._record(
                             CompositionEvent(
                                 CompositionEventType.MODULE_RECEIVED_INPUT,
                                 self.step_index,
                                 module_id=target,
-                                payload=dict(delivered.payload),
+                                payload={
+                                    **dict(delivered.payload),
+                                    "source_module_id": delivered.source_module_id,
+                                },
                             )
                         )
 
@@ -84,6 +94,8 @@ class DiscreteScheduler:
             for signal in emitted:
                 for edge in graph.outgoing_edges(signal.source_module_id):
                     transmitted = edge.transmit(signal)
+                    if transmitted is None:
+                        continue
                     pending.append(transmitted)
                     graph._record(
                         CompositionEvent(
@@ -94,6 +106,10 @@ class DiscreteScheduler:
                                 "target_module_id": edge.target_module_id,
                                 "edge_type": edge.edge_type.value,
                                 "signal_type": type(transmitted).__name__,
+                                "source_signal_type": type(signal).__name__,
+                                "signal_payload": dict(transmitted.payload),
+                                "transform_name": edge.transform_name,
+                                "summary": transmitted.summary,
                             },
                         )
                     )
@@ -126,6 +142,18 @@ class DiscreteScheduler:
                 graph._record(
                     CompositionEvent(
                         event_type,
+                        self.step_index,
+                        module_id=module_id,
+                        payload=dict(signal.payload),
+                    )
+                )
+            if (
+                isinstance(signal, SelectedCategorySignal)
+                and signal.payload.get("created")
+            ):
+                graph._record(
+                    CompositionEvent(
+                        CompositionEventType.MODULE_CATEGORY_CREATED,
                         self.step_index,
                         module_id=module_id,
                         payload=dict(signal.payload),

@@ -66,6 +66,9 @@ Currently implemented features:
 * Category competition table
 * Search history panel
 * Current-step explanation cards
+* ART composition protocol
+* Two-level feed-forward Fuzzy ART pipeline demo
+* Graph-level composition event trace and JSON export
 
 ## How to use
 

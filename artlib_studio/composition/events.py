@@ -9,6 +9,7 @@ from typing import Any, Dict, Optional
 
 class CompositionEventType(str, Enum):
     MODULE_RECEIVED_INPUT = "MODULE_RECEIVED_INPUT"
+    MODULE_CATEGORY_CREATED = "MODULE_CATEGORY_CREATED"
     MODULE_SELECTED_CATEGORY = "MODULE_SELECTED_CATEGORY"
     MODULE_RESONATED = "MODULE_RESONATED"
     MODULE_RESET = "MODULE_RESET"
@@ -30,4 +31,5 @@ class CompositionEvent:
     def to_dict(self) -> Dict[str, Any]:
         data = asdict(self)
         data["type"] = self.type.value
+        data["external_sample_index"] = self.step_index
         return data

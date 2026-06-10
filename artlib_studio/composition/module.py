@@ -111,6 +111,11 @@ class AdapterARTModule(ComposableARTModule):
             prepared = np.concatenate((raw, 1.0 - raw))
         else:
             prepared = self.adapter.prepare_data(np.atleast_2d(raw))[0]
+        prepared_batch = np.atleast_2d(prepared)
+        if hasattr(self.model.art, "validate_data"):
+            self.model.art.validate_data(prepared_batch)
+        if hasattr(self.model.art, "check_dimensions"):
+            self.model.art.check_dimensions(prepared_batch)
         event_start = len(self.trace_recorder.events)
         selected = self.model.step_fit(
             prepared,
@@ -124,6 +129,8 @@ class AdapterARTModule(ComposableARTModule):
 
     def _signals_from_trace(self, step_index: int) -> List[CompositionSignal]:
         outputs: List[CompositionSignal] = []
+        selected_payload: Optional[Dict[str, Any]] = None
+        selected_summary = ""
         for event in self._last_trace_events:
             payload = dict(event.payload)
             summary = payload.get("explanation", event.type.value)
@@ -136,7 +143,8 @@ class AdapterARTModule(ComposableARTModule):
             if event.type == EventType.CATEGORY_EVALUATED:
                 outputs.append(CategoryActivationSignal(**common))
             elif event.type == EventType.CATEGORY_SELECTED:
-                outputs.append(SelectedCategorySignal(**common))
+                selected_payload = payload
+                selected_summary = summary
             elif event.type == EventType.MATCH_TEST:
                 outputs.append(MatchSignal(**common))
             elif event.type == EventType.RESET:
@@ -145,16 +153,26 @@ class AdapterARTModule(ComposableARTModule):
                 outputs.append(ResonanceSignal(**common))
             elif event.type == EventType.LEARNING:
                 outputs.append(LearningSignal(**common))
-
-        if not any(isinstance(s, SelectedCategorySignal) for s in outputs):
-            outputs.append(
-                SelectedCategorySignal(
-                    source_module_id=self.module_id,
-                    step_index=step_index,
-                    payload={"category_id": self._selected_category, "created": True},
-                    summary=f"Selected new category {self._selected_category}.",
+            elif event.type == EventType.CATEGORY_CREATED:
+                selected_payload = {
+                    **payload,
+                    "category_id": payload["created_index"],
+                    "created": True,
+                }
+                selected_summary = (
+                    f"Created and selected category {payload['created_index']}."
                 )
+
+        outputs.append(
+            SelectedCategorySignal(
+                source_module_id=self.module_id,
+                step_index=step_index,
+                payload=selected_payload
+                or {"category_id": self._selected_category},
+                summary=selected_summary
+                or f"Selected category {self._selected_category}.",
             )
+        )
         return outputs
 
     def get_state(self) -> Dict[str, Any]:

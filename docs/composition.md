@@ -80,3 +80,34 @@ equation or synchronized multi-module learning rule.
 
 These constraints keep the protocol small while leaving clear extension points
 for typed routing, expectation-aware adapters, and composition visualizations.
+
+## Two-Level ART Pipeline
+
+The first composition experiment connects two incremental Fuzzy ART modules in
+a feed-forward graph:
+
+```text
+2D sample -> low-level Fuzzy ART -> one-hot category -> high-level Fuzzy ART
+```
+
+The low-level module learns categories over normalized 2D samples. Its selected
+category is converted to a fixed-width one-hot vector and delivered to the
+high-level module as a new `InputSignal`. The high-level module therefore learns
+categories over the observed stream of low-level category identities.
+
+The one-hot selected-category signal is an engineering simplification, not a
+full ART top-down/bottom-up neural code. It discards the low-level activation
+distribution and prototype geometry, and its configured width limits the
+number of low-level categories that can be represented.
+
+This experiment is feed-forward only. The high-level module does not send an
+expectation back to the low-level module, coordinate vigilance, or participate
+in recurrent settling. It is therefore not a Grossberg-style bidirectional
+resonance architecture.
+
+Run the experiment and export its graph trace with:
+
+```bash
+python examples/two_level_fuzzy_art_pipeline.py
+python examples/export_two_level_composition_trace.py
+```
