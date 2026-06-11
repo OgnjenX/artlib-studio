@@ -1,8 +1,7 @@
-"""Config-driven graph composer for Streamlit."""
+"""Interactive, config-driven graph composer for Streamlit."""
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Any, Dict
 
 import numpy as np
@@ -15,14 +14,14 @@ from ...composition.config import (
     graph_config_to_dict,
     load_graph_config,
 )
+from ...composition.events import CompositionEventType
 from ...composition.signals import InputSignal
+from ...graph_canvas_component import art_graph_canvas
 from .composition_view import (
     CONFIG_DIR,
     render_composition_event_timeline,
     render_cross_module_resonance_table,
-    render_edge_table,
     render_expectation_table,
-    render_graph_overview,
     render_modulation_table,
     render_module_table,
     render_signal_flow_table,
@@ -33,6 +32,7 @@ COMPOSER_DATA = np.array(
     [[0.10, 0.12], [0.12, 0.14], [0.82, 0.85], [0.80, 0.83]],
     dtype=float,
 )
+CANVAS_KEY = "art_composition_canvas"
 
 
 def empty_graph_config_dict(name: str = "composed_graph") -> Dict[str, Any]:
@@ -103,14 +103,6 @@ def config_dict_to_json(data: Dict[str, Any]) -> str:
     return json.dumps(data, indent=2)
 
 
-def _set_composer_data(data: Dict[str, Any]) -> None:
-    st.session_state.composer_data = data
-    st.session_state.composer_revision = (
-        st.session_state.get("composer_revision", 0) + 1
-    )
-    st.session_state.pop("composer_graph", None)
-
-
 def _load_builtin(name: str) -> Dict[str, Any]:
     path = {
         "Two-level pipeline": CONFIG_DIR / "two_level_fuzzy_art.yaml",
@@ -121,272 +113,314 @@ def _load_builtin(name: str) -> Dict[str, Any]:
     return graph_config_to_dict(load_graph_config(path))
 
 
+def _set_composer_data(data: Dict[str, Any]) -> None:
+    config = graph_config_from_dict(data)
+    st.session_state.composer_data = graph_config_to_dict(config)
+    st.session_state.composer_revision = (
+        st.session_state.get("composer_revision", 0) + 1
+    )
+    st.session_state.composer_canvas_revision = (
+        st.session_state.get("composer_canvas_revision", 0) + 1
+    )
+    _reset_runtime()
+
+
+def _reset_runtime() -> None:
+    st.session_state.pop("composer_graph", None)
+    st.session_state.composer_sample_index = -1
+
+
+def _canvas_graph_changed() -> None:
+    component_state = st.session_state.get(CANVAS_KEY)
+    candidate = getattr(component_state, "graph", None)
+    if candidate is None and isinstance(component_state, dict):
+        candidate = component_state.get("graph")
+    if candidate is None:
+        return
+    try:
+        config = graph_config_from_dict(candidate)
+    except (KeyError, TypeError, ValueError) as exc:
+        st.session_state.composer_canvas_error = str(exc)
+        st.session_state.composer_canvas_revision = (
+            st.session_state.get("composer_canvas_revision", 0) + 1
+        )
+        return
+    st.session_state.composer_data = graph_config_to_dict(config)
+    st.session_state.composer_revision = (
+        st.session_state.get("composer_revision", 0) + 1
+    )
+    st.session_state.pop("composer_canvas_error", None)
+    _reset_runtime()
+
+
+def _ensure_runtime(config) -> Any:
+    graph = st.session_state.get("composer_graph")
+    if graph is None:
+        graph = build_graph_from_config(config)
+        st.session_state.composer_graph = graph
+    return graph
+
+
+def _input_module_id(config) -> str:
+    try:
+        return next(
+            module.id for module in config.modules if module.type == "adapter"
+        )
+    except StopIteration as exc:
+        raise ValueError("The graph needs at least one ART adapter module") from exc
+
+
+def _step_runtime(config) -> None:
+    next_index = st.session_state.get("composer_sample_index", -1) + 1
+    if next_index >= len(COMPOSER_DATA):
+        raise ValueError(
+            f"Demo dataset complete ({len(COMPOSER_DATA)} samples). "
+            "Reset runtime to replay it."
+        )
+    graph = _ensure_runtime(config)
+    graph.step(
+        [
+            InputSignal(
+                "environment",
+                target_module_id=_input_module_id(config),
+                step_index=next_index,
+                payload={"input": COMPOSER_DATA[next_index].tolist()},
+            )
+        ]
+    )
+    st.session_state.composer_sample_index = next_index
+
+
+def _runtime_payload(graph: Any) -> Dict[str, Any]:
+    if graph is None:
+        return {
+            "step_index": 0,
+            "modules": {},
+            "active_modules": [],
+            "active_edges": [],
+            "last_event": None,
+        }
+    state = graph.get_global_state()
+    current_step = max(0, state["step_index"] - 1)
+    step_events = [
+        event
+        for event in graph.get_event_log()
+        if event.step_index == current_step
+    ]
+    active_module_types = {
+        CompositionEventType.MODULE_RECEIVED_INPUT,
+        CompositionEventType.MODULE_SELECTED_CATEGORY,
+        CompositionEventType.MODULE_RESONATED,
+        CompositionEventType.MODULE_RESET,
+        CompositionEventType.MODULE_LEARNED,
+        CompositionEventType.MODULE_PARAMETER_MODULATED,
+    }
+    active_modules = sorted(
+        {
+            event.module_id
+            for event in step_events
+            if event.module_id is not None and event.type in active_module_types
+        }
+    )
+    active_edges = sorted(
+        {
+            f"{event.module_id}:{event.payload['target_module_id']}"
+            for event in step_events
+            if event.type == CompositionEventType.SIGNAL_SENT
+            and event.module_id is not None
+            and event.payload.get("target_module_id") is not None
+        }
+    )
+    return {
+        "step_index": state["step_index"],
+        "modules": state["modules"],
+        "active_modules": active_modules,
+        "active_edges": active_edges,
+        "last_event": step_events[-1].type.value if step_events else None,
+    }
+
+
+def _render_config_io() -> None:
+    with st.expander("Config import / export"):
+        built_in = st.selectbox(
+            "Built-in graph",
+            [
+                "Two-level pipeline",
+                "Bidirectional expectation",
+                "Modulatory vigilance",
+            ],
+        )
+        if st.button("Load built-in graph"):
+            _set_composer_data(_load_builtin(built_in))
+            st.rerun()
+
+        pasted = st.text_area(
+            "YAML / JSON configuration",
+            value=yaml.safe_dump(
+                st.session_state.composer_data,
+                sort_keys=False,
+            ),
+            key=f"composer_yaml_{st.session_state.composer_revision}",
+            height=280,
+        )
+        cols = st.columns(2)
+        if cols[0].button("Apply configuration"):
+            try:
+                parsed = yaml.safe_load(pasted)
+                _set_composer_data(graph_config_to_dict(
+                    graph_config_from_dict(parsed)
+                ))
+                st.rerun()
+            except Exception as exc:
+                st.error(str(exc))
+        uploaded = cols[1].file_uploader(
+            "Upload YAML or JSON",
+            type=["yaml", "yml", "json"],
+            label_visibility="collapsed",
+        )
+        if uploaded is not None:
+            try:
+                text = uploaded.getvalue().decode("utf-8")
+                parsed = (
+                    json.loads(text)
+                    if uploaded.name.endswith(".json")
+                    else yaml.safe_load(text)
+                )
+                _set_composer_data(graph_config_to_dict(
+                    graph_config_from_dict(parsed)
+                ))
+                st.rerun()
+            except Exception as exc:
+                st.error(str(exc))
+
+
 def render_graph_composer() -> None:
-    st.subheader("Graph Composer")
+    st.subheader("Visual Graph Composer")
     st.caption(
-        "This is a config-driven visual composer. It uses forms and a static "
-        "preview rather than drag-and-drop."
+        "Build ART networks directly on the canvas. Drag modules, connect "
+        "ports, edit parameters, then step the executable graph."
     )
     if "composer_data" not in st.session_state:
+        st.session_state.composer_revision = 0
+        st.session_state.composer_canvas_revision = 0
         _set_composer_data(_load_builtin("Two-level pipeline"))
 
-    built_in = st.selectbox(
-        "Load built-in config",
-        [
-            "Two-level pipeline",
-            "Bidirectional expectation",
-            "Modulatory vigilance",
-        ],
-    )
-    if st.button("Load selected config"):
-        _set_composer_data(_load_builtin(built_in))
-        st.rerun()
-
-    pasted = st.text_area(
-        "YAML / JSON configuration",
-        value=yaml.safe_dump(st.session_state.composer_data, sort_keys=False),
-        key=f"composer_yaml_{st.session_state.get('composer_revision', 0)}",
-        height=300,
-    )
-    parse_cols = st.columns(2)
-    if parse_cols[0].button("Validate configuration"):
-        try:
-            parsed = yaml.safe_load(pasted)
-            config = graph_config_from_dict(parsed)
-            st.session_state.composer_data = graph_config_to_dict(config)
-            st.success("Configuration is valid.")
-        except Exception as exc:
-            st.error(str(exc))
-    uploaded = parse_cols[1].file_uploader(
-        "Upload YAML or JSON",
-        type=["yaml", "yml", "json"],
-        label_visibility="collapsed",
-    )
-    if uploaded is not None:
-        try:
-            text = uploaded.getvalue().decode("utf-8")
-            parsed = (
-                json.loads(text)
-                if uploaded.name.endswith(".json")
-                else yaml.safe_load(text)
-            )
-            _set_composer_data(graph_config_to_dict(graph_config_from_dict(parsed)))
-            st.rerun()
-        except Exception as exc:
-            st.error(str(exc))
-
-    data = st.session_state.composer_data
-    with st.expander("Add module"):
-        with st.form("composer_add_module"):
-            module_id = st.text_input("Module id")
-            module_type = st.selectbox("Module type", ["adapter", "context"])
-            rho = st.number_input("rho / context value", 0.0, 1.0, 0.85)
-            submitted = st.form_submit_button("Add module")
-            if submitted:
-                module = (
-                    {
-                        "id": module_id,
-                        "type": "adapter",
-                        "adapter": "fuzzy_art",
-                        "params": {"rho": rho, "alpha": 0.001, "beta": 1.0},
-                    }
-                    if module_type == "adapter"
-                    else {
-                        "id": module_id,
-                        "type": "context",
-                        "rules": [
-                            {
-                                "name": "vigilance_context",
-                                "active": True,
-                                "target_param": "rho",
-                                "mode": "set",
-                                "value": rho,
-                                "duration": "current_step",
-                            }
-                        ],
-                    }
-                )
-                try:
-                    _set_composer_data(add_module_to_config(data, module))
-                    st.rerun()
-                except ValueError as exc:
-                    st.error(str(exc))
-
-    module_ids = [module["id"] for module in data.get("modules", [])]
-    if module_ids:
-        with st.expander("Remove module"):
-            remove_id = st.selectbox("Module", module_ids, key="remove_module_id")
-            if st.button("Remove module"):
-                _set_composer_data(remove_module_from_config(data, remove_id))
-                st.rerun()
-
-    if len(module_ids) >= 2:
-        with st.expander("Add edge"):
-            with st.form("composer_add_edge"):
-                source = st.selectbox("Source", module_ids)
-                target = st.selectbox("Target", module_ids, index=1)
-                edge_type = st.selectbox(
-                    "Edge type",
-                    [
-                        "BOTTOM_UP",
-                        "TOP_DOWN_EXPECTATION",
-                        "MODULATORY",
-                        "ASSOCIATIVE",
-                        "RESET_PROPAGATION",
-                    ],
-                )
-                transform_name = st.selectbox(
-                    "Transform",
-                    [
-                        "none",
-                        "selected_category_to_one_hot",
-                        "selected_category_to_scalar_vector",
-                        "selected_category_to_activation_vector",
-                        "high_category_to_expectation",
-                    ],
-                )
-                transform_value = st.number_input(
-                    "vector_size / max_category_id",
-                    min_value=1,
-                    value=4,
-                )
-                submitted = st.form_submit_button("Add edge")
-                if submitted:
-                    if source == target:
-                        st.error(
-                            "Self-loops require advanced mode and are not "
-                            "available in this composer."
-                        )
-                        st.stop()
-                    edge = {
-                        "source": source,
-                        "target": target,
-                        "type": edge_type,
-                    }
-                    if transform_name != "none":
-                        params = {}
-                        if transform_name == "selected_category_to_one_hot":
-                            params["vector_size"] = int(transform_value)
-                        elif transform_name == "selected_category_to_scalar_vector":
-                            params["max_category_id"] = int(transform_value)
-                        edge["transform"] = {
-                            "name": transform_name,
-                            "params": params,
-                        }
-                    try:
-                        updated = add_edge_to_config(data, edge)
-                        graph_config_from_dict(updated)
-                        _set_composer_data(updated)
-                        st.rerun()
-                    except ValueError as exc:
-                        st.error(str(exc))
-
-        if data.get("edges"):
-            edge_labels = [
-                f"{index}: {edge['source']} -> {edge['target']} ({edge['type']})"
-                for index, edge in enumerate(data["edges"])
-            ]
-            remove_edge = st.selectbox(
-                "Remove edge",
-                edge_labels,
-                key="remove_edge_index",
-            )
-            if st.button("Remove selected edge"):
-                index = int(remove_edge.split(":", 1)[0])
-                _set_composer_data(remove_edge_from_config(data, index))
-                st.rerun()
-
-    with st.expander("Association memory"):
-        with st.form("composer_add_association"):
-            high_category = st.number_input(
-                "High-level category", min_value=0, value=0
-            )
-            low_category = st.number_input(
-                "Low-level category", min_value=0, value=0
-            )
-            if st.form_submit_button("Add association"):
-                updated = json.loads(json.dumps(data))
-                updated.setdefault("associations", []).append(
-                    {
-                        "high_category_id": int(high_category),
-                        "low_category_id": int(low_category),
-                    }
-                )
-                _set_composer_data(updated)
-                st.rerun()
-        associations = data.get("associations", [])
-        if associations:
-            labels = [
-                f"{index}: high {item['high_category_id']} -> "
-                f"low {item['low_category_id']}"
-                for index, item in enumerate(associations)
-            ]
-            selected = st.selectbox(
-                "Remove association",
-                labels,
-                key="remove_association_index",
-            )
-            if st.button("Remove selected association"):
-                updated = json.loads(json.dumps(data))
-                updated["associations"].pop(int(selected.split(":", 1)[0]))
-                _set_composer_data(updated)
-                st.rerun()
+    _render_config_io()
 
     try:
         config = graph_config_from_dict(st.session_state.composer_data)
-        preview_graph = build_graph_from_config(config)
-        render_graph_overview(preview_graph)
-        render_module_table(preview_graph.get_global_state())
-        render_edge_table(preview_graph)
     except Exception as exc:
-        st.error(f"Preview unavailable: {exc}")
+        st.error(f"Graph configuration is invalid: {exc}")
         return
 
-    if st.button("Run composed graph"):
-        graph = build_graph_from_config(config)
-        input_module = next(
-            module.id for module in config.modules if module.type == "adapter"
+    sample_index = st.session_state.get("composer_sample_index", -1)
+    dataset_complete = sample_index + 1 >= len(COMPOSER_DATA)
+    controls = st.columns([1, 1.2, 1, 2])
+    if controls[0].button(
+        "Step",
+        type="primary",
+        disabled=dataset_complete,
+        help=(
+            "Reset runtime to replay the demo dataset."
+            if dataset_complete
+            else "Process the next input sample."
+        ),
+    ):
+        try:
+            _step_runtime(config)
+        except Exception as exc:
+            st.session_state.composer_run_error = str(exc)
+    if controls[1].button(
+        "Run remaining",
+        disabled=dataset_complete,
+        help=(
+            "All demo samples have been processed."
+            if dataset_complete
+            else "Process every remaining input sample."
+        ),
+    ):
+        try:
+            while (
+                st.session_state.get("composer_sample_index", -1) + 1
+                < len(COMPOSER_DATA)
+            ):
+                _step_runtime(config)
+        except Exception as exc:
+            st.session_state.composer_run_error = str(exc)
+    if controls[2].button("Reset runtime"):
+        _reset_runtime()
+        st.session_state.pop("composer_run_error", None)
+    if sample_index < 0:
+        controls[3].caption(
+            f"Ready: 0/{len(COMPOSER_DATA)} demo samples processed"
         )
-        for sample_index, sample in enumerate(COMPOSER_DATA):
-            graph.step(
-                [
-                    InputSignal(
-                        "environment",
-                        target_module_id=input_module,
-                        step_index=sample_index,
-                        payload={"input": sample.tolist()},
-                    )
-                ]
-            )
-        st.session_state.composer_graph = graph
+    elif dataset_complete:
+        controls[3].caption(
+            f"Dataset complete: {len(COMPOSER_DATA)}/"
+            f"{len(COMPOSER_DATA)} samples processed. Reset to replay."
+        )
+    else:
+        controls[3].caption(
+            f"Sample {sample_index + 1}/{len(COMPOSER_DATA)}: "
+            f"{COMPOSER_DATA[sample_index].tolist()}"
+        )
 
-    yaml_text = config_dict_to_yaml(st.session_state.composer_data)
-    json_text = config_dict_to_json(st.session_state.composer_data)
-    download_cols = st.columns(2)
+    canvas_error = st.session_state.get("composer_canvas_error")
+    run_error = st.session_state.get("composer_run_error")
+    if canvas_error:
+        st.error(f"Canvas edit rejected: {canvas_error}")
+    if run_error:
+        st.error(f"Graph execution failed: {run_error}")
+
+    graph = st.session_state.get("composer_graph")
+    art_graph_canvas(
+        st.session_state.composer_data,
+        revision=st.session_state.composer_canvas_revision,
+        runtime=_runtime_payload(graph),
+        key=CANVAS_KEY,
+        on_graph_change=_canvas_graph_changed,
+    )
+
+    try:
+        config = graph_config_from_dict(st.session_state.composer_data)
+        yaml_text = config_dict_to_yaml(st.session_state.composer_data)
+        json_text = config_dict_to_json(st.session_state.composer_data)
+    except Exception as exc:
+        st.error(f"Canvas graph is invalid: {exc}")
+        return
+
+    download_cols = st.columns(3)
     download_cols[0].download_button(
-        "Download YAML config",
+        "Download YAML",
         yaml_text,
         file_name=f"{config.name}.yaml",
     )
     download_cols[1].download_button(
-        "Download JSON config",
+        "Download JSON",
         json_text,
         file_name=f"{config.name}.json",
     )
 
     graph = st.session_state.get("composer_graph")
-    if graph is not None:
-        trace = graph.get_event_log()
-        render_graph_overview(graph)
+    if graph is None:
+        st.info(
+            "Connect valid modules and press Step to see category selection "
+            "and signal activity on the canvas."
+        )
+        return
+
+    trace = graph.get_event_log()
+    trace_json = json.dumps([event.to_dict() for event in trace], indent=2)
+    download_cols[2].download_button(
+        "Download trace",
+        trace_json,
+        file_name=f"{config.name}_trace.json",
+    )
+
+    with st.expander("Runtime details", expanded=False):
         render_module_table(graph.get_global_state())
         render_signal_flow_table(trace)
         render_modulation_table(trace)
         render_expectation_table(trace)
         render_cross_module_resonance_table(trace)
         render_composition_event_timeline(trace)
-        trace_json = json.dumps([event.to_dict() for event in trace], indent=2)
-        st.download_button(
-            "Download event trace JSON",
-            trace_json,
-            file_name=f"{config.name}_trace.json",
-        )

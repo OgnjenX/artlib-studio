@@ -76,7 +76,7 @@ Currently implemented features:
 * Cross-module resonance and mismatch tracing
 * Streamlit composition graph inspection
 * YAML/JSON composition graph loader and builder
-* Config-driven graph composer with static preview
+* Drag-and-drop visual graph composer with live runtime state
 * Context nodes and `MODULATORY` vigilance edges
 * Current-step and persistent `rho` modulation
 * Same-step modulation tracing and parameter restoration
@@ -89,9 +89,15 @@ The Composition Studio provides three built-in educational experiments:
 * Bidirectional association-backed expectation
 * Modulatory vigilance context
 
-It also includes a form-based graph composer for adding modules, typed edges,
-transforms, and association entries. Graph configurations can be imported or
-exported as YAML or JSON, and graph traces can be exported as JSON.
+It also includes a visual graph composer for dragging ART and context modules,
+choosing Fuzzy, Gaussian, or Hypersphere ART modules, connecting typed edges,
+renaming projects and modules, editing model-specific parameters, and stepping
+the executable graph.
+Selected categories and active signal paths appear directly on the canvas.
+Separate `BU` and `TD` ports keep reciprocal bottom-up and top-down expectation
+connections on distinct lanes.
+Graph configurations can be imported or exported as YAML or JSON, including
+saved node positions, and graph traces can be exported as JSON.
 
 Run the config and modulation examples with:
 

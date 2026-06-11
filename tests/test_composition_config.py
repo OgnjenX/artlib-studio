@@ -69,13 +69,43 @@ def test_config_validation_rejects_unknown_target_and_transform():
         )
 
 
+@pytest.mark.parametrize(
+    "adapter",
+    ["fuzzy_art", "gaussian_art", "hypersphere_art"],
+)
+def test_composition_config_accepts_registered_art_adapters(adapter):
+    config = graph_config_from_dict(
+        {
+            "name": f"{adapter}_graph",
+            "modules": [
+                {
+                    "id": "art",
+                    "type": "adapter",
+                    "adapter": adapter,
+                    "params": {},
+                }
+            ],
+            "edges": [],
+        }
+    )
+
+    graph = build_graph_from_config(config)
+
+    assert graph.get_module("art").adapter.model_key == adapter
+
+
 def test_config_round_trip(tmp_path):
     config = load_graph_config(CONFIG_DIR / "two_level_fuzzy_art.yaml")
+    config.modules[0].position = {"x": 120.0, "y": 80.0}
     yaml_path = save_graph_config(config, tmp_path / "graph.yaml")
     json_path = save_graph_config(config, tmp_path / "graph.json")
     assert load_graph_config(yaml_path) == config
     assert load_graph_config(json_path) == config
     assert json.loads(json_path.read_text())["name"] == config.name
+    assert load_graph_config(yaml_path).modules[0].position == {
+        "x": 120.0,
+        "y": 80.0,
+    }
 
 
 def test_two_level_config_builds_and_runs():

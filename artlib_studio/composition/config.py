@@ -18,7 +18,11 @@ SUPPORTED_TRANSFORMS = {
     "high_category_to_expectation",
 }
 SUPPORTED_MODULE_TYPES = {"adapter", "context"}
-SUPPORTED_ADAPTERS = {"fuzzy_art"}
+SUPPORTED_ADAPTERS = {
+    "fuzzy_art",
+    "gaussian_art",
+    "hypersphere_art",
+}
 SUPPORTED_MODULATION_MODES = {"set", "add", "multiply"}
 SUPPORTED_MODULATION_DURATIONS = {"current_step", "persistent"}
 
@@ -47,6 +51,7 @@ class ModuleConfig:
     adapter: Optional[str] = None
     params: Dict[str, Any] = field(default_factory=dict)
     rules: List[ContextRuleConfig] = field(default_factory=list)
+    position: Optional[Dict[str, float]] = None
 
 
 @dataclass
@@ -102,6 +107,18 @@ class GraphConfig:
                     )
                 for rule in module.rules:
                     _validate_context_rule(module.id, rule)
+            if module.position is not None:
+                if set(module.position) != {"x", "y"}:
+                    raise ValueError(
+                        f"Module {module.id!r} position requires x and y"
+                    )
+                if not all(
+                    isinstance(value, (int, float))
+                    for value in module.position.values()
+                ):
+                    raise ValueError(
+                        f"Module {module.id!r} position values must be numeric"
+                    )
 
         for edge in self.edges:
             if edge.source not in known_modules:
@@ -168,6 +185,14 @@ def graph_config_from_dict(data: Dict[str, Any]) -> GraphConfig:
                 adapter=module_data.get("adapter"),
                 params=dict(module_data.get("params", {})),
                 rules=rules,
+                position=(
+                    {
+                        "x": float(module_data["position"]["x"]),
+                        "y": float(module_data["position"]["y"]),
+                    }
+                    if module_data.get("position") is not None
+                    else None
+                ),
             )
         )
     edges = []

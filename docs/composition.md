@@ -213,14 +213,38 @@ uv run python examples/run_composition_config.py \
 
 ## Graph Composer
 
-The Graph Composer is a config-driven visual editor in Streamlit. It can load
-built-in examples, edit YAML or JSON, add and remove modules and edges, manage
-association entries, validate and run a graph, and download the configuration
-or event trace.
+The Graph Composer is a config-driven visual editor built with a Streamlit
+bidirectional component and React Flow. It supports:
 
-It uses Streamlit forms, tables, and a static graph preview. Drag-and-drop is
-not required for graph semantics: typed edges and named transforms define how
-signals move through the executable graph.
+- dragging ART and context modules on a zoomable canvas
+- choosing Fuzzy ART, Gaussian ART, or Hypersphere ART when adding a module
+- renaming the composition project and modules, with connected edges updated
+  automatically
+- connecting module ports to create typed edges
+- adding and deleting modules and edges
+- editing `rho`, `alpha`, `beta`, context rules, edge types, and transforms
+- stepping, running, and resetting the executable graph
+- highlighting active modules and signal paths from the latest graph step
+- displaying selected categories and category counts inside ART nodes
+- importing and exporting YAML or JSON, including node positions
+- exporting the graph event trace
+
+ART nodes expose separate color-coded signal ports. `BU` is the teal
+bottom-up output lane, `TD` is the orange top-down expectation output lane,
+and the left side has distinct bottom-up, modulatory, and expectation inputs.
+Existing edge types automatically use the corresponding ports. Drawing from
+`BU` creates a bottom-up edge; drawing from `TD` creates a top-down expectation
+edge with the expectation transform selected.
+
+The canvas edits `GraphConfig`; it does not execute model logic in JavaScript.
+Python remains responsible for validation, graph construction, scheduling,
+learning, and trace recording. Structural or parameter edits reset the runtime
+graph deliberately so an edited configuration cannot silently mutate an
+already-trained model.
+
+The initial canvas is a practical node editor rather than a complete Simulink
+replacement. It does not yet include nested subsystems, arbitrary data ports,
+breakpoints, or continuous-time execution.
 
 ## Modulatory Context Nodes
 
