@@ -51,6 +51,15 @@ class ExpectationSignal(CompositionSignal):
 
 
 @dataclass(frozen=True)
+class ModulatorySignal(CompositionSignal):
+    target_param: str = "rho"
+    mode: str = "set"
+    value: float = 0.0
+    duration: str = "current_step"
+    explanation: str = ""
+
+
+@dataclass(frozen=True)
 class MatchSignal(CompositionSignal):
     pass
 

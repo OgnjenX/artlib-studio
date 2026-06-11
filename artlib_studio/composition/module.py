@@ -17,6 +17,7 @@ from .signals import (
     InputSignal,
     LearningSignal,
     MatchSignal,
+    ModulatorySignal,
     ResetSignal,
     ResonanceSignal,
     SelectedCategorySignal,
@@ -78,6 +79,7 @@ class AdapterARTModule(ComposableARTModule):
         self._sample_index = 0
         self._selected_category: Optional[int] = None
         self._last_trace_events = []
+        self._step_param_snapshot: Dict[str, Dict[str, Any]] = {}
         self._build_runtime()
 
     def _build_runtime(self) -> None:
@@ -94,8 +96,89 @@ class AdapterARTModule(ComposableARTModule):
         pending = self._inbox
         self._inbox = []
         for signal in pending:
+            if isinstance(signal, ModulatorySignal):
+                self.apply_modulation(signal)
+        for signal in pending:
             if isinstance(signal, InputSignal):
                 self._process_input(signal)
+
+    def get_params(self) -> Dict[str, Any]:
+        return dict(self.model.art.params)
+
+    def set_param(self, name: str, value: Any, persistent: bool = False) -> None:
+        if name not in self.model.art.params:
+            raise ValueError(
+                f"Module {self.module_id!r} does not support parameter {name!r}"
+            )
+        if name == "rho" and not 0.0 <= float(value) <= 1.0:
+            raise ValueError("rho modulation must remain in [0, 1]")
+        self.model.art.params[name] = value
+        if persistent:
+            self.model_params[name] = value
+
+    def apply_modulation(self, signal: ModulatorySignal) -> Dict[str, Any]:
+        name = signal.target_param
+        params = self.get_params()
+        if name not in params:
+            raise ValueError(
+                f"Module {self.module_id!r} does not support parameter {name!r}"
+            )
+        before = params[name]
+        if signal.mode == "set":
+            after = signal.value
+        elif signal.mode == "add":
+            after = before + signal.value
+        elif signal.mode == "multiply":
+            after = before * signal.value
+        else:
+            raise ValueError(f"Unsupported modulation mode {signal.mode!r}")
+        if signal.duration == "current_step":
+            self._step_param_snapshot.setdefault(
+                name,
+                {
+                    "original_value": before,
+                    "source_module_id": signal.source_module_id,
+                    "target_param": name,
+                    "mode": signal.mode,
+                    "duration": signal.duration,
+                    "explanation": signal.explanation,
+                },
+            )
+        elif signal.duration != "persistent":
+            raise ValueError(
+                f"Unsupported modulation duration {signal.duration!r}"
+            )
+        self.set_param(
+            name,
+            after,
+            persistent=signal.duration == "persistent",
+        )
+        return {
+            "target_param": name,
+            "mode": signal.mode,
+            "value": signal.value,
+            "duration": signal.duration,
+            "before": before,
+            "after": after,
+            "explanation": signal.explanation,
+        }
+
+    def restore_step_modulations(self) -> List[Dict[str, Any]]:
+        restored = []
+        for name, snapshot in self._step_param_snapshot.items():
+            before = self.model.art.params[name]
+            restored_value = snapshot["original_value"]
+            self.set_param(name, restored_value)
+            restored.append(
+                {
+                    **snapshot,
+                    "before": before,
+                    "after": restored_value,
+                    "restored_value": restored_value,
+                }
+            )
+        self._step_param_snapshot = {}
+        return restored
 
     def _process_input(self, signal: InputSignal) -> None:
         value = signal.payload.get("input", signal.payload.get("value"))
@@ -183,6 +266,7 @@ class AdapterARTModule(ComposableARTModule):
             "category_count": len(getattr(self.model.art, "W", [])),
             "sample_count": self._sample_index,
             "pending_signals": len(self._inbox),
+            "params": self.get_params(),
         }
 
     def get_output_signals(self) -> List[CompositionSignal]:
@@ -197,6 +281,7 @@ class AdapterARTModule(ComposableARTModule):
         self._sample_index = 0
         self._selected_category = None
         self._last_trace_events = []
+        self._step_param_snapshot = {}
         self._build_runtime()
 
     def supports_expectation(self) -> bool:

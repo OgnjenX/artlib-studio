@@ -11,6 +11,9 @@
 * capability-aware visualization
 * trace recorder
 * Streamlit explorer
+* ART Composition Studio
+* YAML/JSON graph configuration
+* context-driven vigilance modulation
 
 ## Planned:
 
@@ -43,7 +46,7 @@ pytest
 ## Running the Explorer
 
 ```bash
-streamlit run artlib_studio/apps/streamlit_app.py
+uv run streamlit run artlib_studio/apps/streamlit_app.py
 ```
 
 ## ARTLib Studio Current Status
@@ -71,7 +74,44 @@ Currently implemented features:
 * Graph-level composition event trace and JSON export
 * Bidirectional association-based expectation prototype
 * Cross-module resonance and mismatch tracing
+* Streamlit composition graph inspection
+* YAML/JSON composition graph loader and builder
+* Config-driven graph composer with static preview
+* Context nodes and `MODULATORY` vigilance edges
+* Current-step and persistent `rho` modulation
+* Same-step modulation tracing and parameter restoration
+
+## Composition Studio
+
+The Composition Studio provides three built-in educational experiments:
+
+* Two-level feed-forward Fuzzy ART
+* Bidirectional association-backed expectation
+* Modulatory vigilance context
+
+It also includes a form-based graph composer for adding modules, typed edges,
+transforms, and association entries. Graph configurations can be imported or
+exported as YAML or JSON, and graph traces can be exported as JSON.
+
+Run the config and modulation examples with:
+
+```bash
+uv run python examples/run_composition_config.py examples/configs/two_level_fuzzy_art.yaml
+uv run python examples/run_composition_config.py examples/configs/bidirectional_expectation.yaml
+uv run python examples/modulatory_vigilance_demo.py
+uv run python examples/export_modulatory_trace.py
+```
+
+These experiments are software prototypes for studying ART composition. They
+are not full Grossberg biological neural circuits, synchronized neural
+dynamics, or learned top-down ART templates.
+
+For `current_step` context rules, modulation is applied before ART input
+processing and learning, then restored after the graph settles. Persistent
+modulation remains active. The Composition Studio exposes this ordering in a
+dedicated modulation event table. Context nodes are explicit educational
+control nodes, not a biological neuromodulatory model.
 
 ## How to use
 
-See the [Streamlit app](https://github.com/NiklasMelton/ARTLibStudio/blob/master/artlib_studio/apps/streamlit_app.py) for an interactive demo.
+See the [Streamlit app](https://github.com/OgnjenX/artlib-studio/blob/main/artlib_studio/apps/streamlit_app.py) for the interactive explorer and Composition Studio.

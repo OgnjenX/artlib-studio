@@ -11,6 +11,7 @@ from .signals import (
     ExpectationSignal,
     InputSignal,
     LearningSignal,
+    ModulatorySignal,
     ResetSignal,
     ResonanceSignal,
     SelectedCategorySignal,
@@ -32,7 +33,10 @@ class DiscreteScheduler:
         graph: "ARTCompositionGraph",
         input_signals: Iterable[CompositionSignal],
     ) -> bool:
-        pending = list(input_signals)
+        external_signals = list(input_signals)
+        # Context modulation is routed first so recipients use the changed
+        # parameters when processing external input in this graph step.
+        pending = self._initial_context_signals(graph) + external_signals
         pending_associations: Set[Tuple[int, int]] = set()
         for settling_step in range(self.max_settling_steps):
             if not pending:
@@ -41,6 +45,7 @@ class DiscreteScheduler:
                         high_category,
                         low_category,
                     )
+                self._restore_step_modulations(graph)
                 graph._record(
                     CompositionEvent(
                         CompositionEventType.GRAPH_SETTLED,
@@ -61,8 +66,6 @@ class DiscreteScheduler:
                 for target in targets:
                     module = graph.get_module(target)
                     delivered = signal.for_target(target)
-                    module.receive(delivered)
-                    recipients[target].append(delivered)
                     graph._record(
                         CompositionEvent(
                             CompositionEventType.SIGNAL_RECEIVED,
@@ -77,6 +80,12 @@ class DiscreteScheduler:
                             },
                         )
                     )
+                    if isinstance(delivered, ModulatorySignal):
+                        self._apply_modulation(graph, target, delivered)
+                        continue
+
+                    module.receive(delivered)
+                    recipients[target].append(delivered)
                     if isinstance(delivered, InputSignal):
                         graph._record(
                             CompositionEvent(
@@ -140,7 +149,20 @@ class DiscreteScheduler:
                                 },
                             )
                         )
+                    elif isinstance(transmitted, ModulatorySignal):
+                        graph._record(
+                            CompositionEvent(
+                                CompositionEventType.MODULATION_SENT,
+                                self.step_index,
+                                module_id=signal.source_module_id,
+                                payload={
+                                    "target_module_id": edge.target_module_id,
+                                    **dict(transmitted.payload),
+                                },
+                            )
+                        )
 
+        self._restore_step_modulations(graph)
         graph._record(
             CompositionEvent(
                 CompositionEventType.GRAPH_FAILED_TO_SETTLE,
@@ -150,6 +172,105 @@ class DiscreteScheduler:
         )
         self.step_index += 1
         return False
+
+    def _initial_context_signals(
+        self,
+        graph: "ARTCompositionGraph",
+    ) -> List[CompositionSignal]:
+        transmitted_signals: List[CompositionSignal] = []
+        for module_id, module in graph.modules.items():
+            emit = getattr(module, "emit_modulations", None)
+            if emit is None:
+                continue
+            for signal in emit(self.step_index):
+                for edge in graph.outgoing_edges(module_id):
+                    if edge.edge_type != EdgeType.MODULATORY:
+                        continue
+                    transmitted = edge.transmit(signal)
+                    if transmitted is None:
+                        continue
+                    transmitted_signals.append(transmitted)
+                    graph._record(
+                        CompositionEvent(
+                            CompositionEventType.SIGNAL_SENT,
+                            self.step_index,
+                            module_id=module_id,
+                            payload={
+                                "target_module_id": edge.target_module_id,
+                                "edge_type": edge.edge_type.value,
+                                "signal_type": type(transmitted).__name__,
+                                "source_signal_type": type(signal).__name__,
+                                "signal_payload": dict(transmitted.payload),
+                                "transform_name": edge.transform_name,
+                                "summary": transmitted.summary,
+                            },
+                        )
+                    )
+                    graph._record(
+                        CompositionEvent(
+                            CompositionEventType.MODULATION_SENT,
+                            self.step_index,
+                            module_id=module_id,
+                            payload={
+                                "target_module_id": edge.target_module_id,
+                                **dict(transmitted.payload),
+                            },
+                        )
+                    )
+        return transmitted_signals
+
+    def _apply_modulation(
+        self,
+        graph: "ARTCompositionGraph",
+        target_module_id: str,
+        signal: ModulatorySignal,
+    ) -> None:
+        module = graph.get_module(target_module_id)
+        apply = getattr(module, "apply_modulation", None)
+        if apply is None:
+            raise ValueError(
+                f"Module {target_module_id!r} does not support modulation"
+            )
+        details = apply(signal)
+        payload = {
+            "source_module_id": signal.source_module_id,
+            "target_module_id": target_module_id,
+            **details,
+        }
+        graph._record(
+            CompositionEvent(
+                CompositionEventType.MODULATION_RECEIVED,
+                self.step_index,
+                module_id=target_module_id,
+                payload=payload,
+            )
+        )
+        graph._record(
+            CompositionEvent(
+                CompositionEventType.MODULE_PARAMETER_MODULATED,
+                self.step_index,
+                module_id=target_module_id,
+                payload=payload,
+            )
+        )
+
+    def _restore_step_modulations(self, graph: "ARTCompositionGraph") -> None:
+        for module_id, module in graph.modules.items():
+            restore = getattr(module, "restore_step_modulations", None)
+            if restore is None:
+                continue
+            for details in restore():
+                graph._record(
+                    CompositionEvent(
+                        CompositionEventType.MODULE_PARAMETER_RESTORED,
+                        self.step_index,
+                        module_id=module_id,
+                        payload={
+                            "target_module_id": module_id,
+                            **details,
+                        },
+                    )
+                )
 
     def _association_pairs_for_outputs(
         self,

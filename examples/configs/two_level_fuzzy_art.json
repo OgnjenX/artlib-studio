@@ -1,0 +1,29 @@
+{
+  "name": "two_level_fuzzy_art",
+  "description": "Two-level feed-forward Fuzzy ART pipeline",
+  "modules": [
+    {
+      "id": "low_level_fuzzy_art",
+      "type": "adapter",
+      "adapter": "fuzzy_art",
+      "params": {"rho": 0.85, "alpha": 0.001, "beta": 1.0}
+    },
+    {
+      "id": "high_level_fuzzy_art",
+      "type": "adapter",
+      "adapter": "fuzzy_art",
+      "params": {"rho": 0.75, "alpha": 0.001, "beta": 1.0}
+    }
+  ],
+  "edges": [
+    {
+      "source": "low_level_fuzzy_art",
+      "target": "high_level_fuzzy_art",
+      "type": "BOTTOM_UP",
+      "transform": {
+        "name": "selected_category_to_one_hot",
+        "params": {"vector_size": 4}
+      }
+    }
+  ]
+}

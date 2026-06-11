@@ -1,0 +1,24 @@
+name: modulatory_vigilance
+description: Strict context temporarily raises low-level vigilance
+modules:
+  - id: low_level_fuzzy_art
+    type: adapter
+    adapter: fuzzy_art
+    params:
+      rho: 0.6
+      alpha: 0.001
+      beta: 1.0
+  - id: strict_context
+    type: context
+    rules:
+      - name: strict_vigilance
+        active: true
+        target_param: rho
+        mode: set
+        value: 0.95
+        duration: current_step
+        explanation: Strict context raises vigilance for this graph step.
+edges:
+  - source: strict_context
+    target: low_level_fuzzy_art
+    type: MODULATORY

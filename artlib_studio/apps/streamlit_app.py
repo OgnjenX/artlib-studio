@@ -48,7 +48,26 @@ def make_dataset(n_samples=200, centers=3, seed=0) -> Tuple[np.ndarray, np.ndarr
 
 def main():
     st.set_page_config(layout="wide")
-    st.title("ARTLib Studio — Step-By-Step ART Explorer (v0.4)")
+    studio_mode = st.sidebar.radio(
+        "Studio Mode",
+        ["Single ART Explorer", "Composition Experiments"],
+    )
+    if studio_mode == "Composition Experiments":
+        from artlib_studio.apps.components.composition_view import (
+            render_composition_experiment,
+            render_composition_experiment_selector,
+        )
+
+        st.title("ARTLib Studio - Composition Studio")
+        st.caption(
+            "Educational computational prototypes for composable ART systems. "
+            "These are not full Grossberg biological neural circuits."
+        )
+        experiment = render_composition_experiment_selector()
+        render_composition_experiment(experiment)
+        return
+
+    st.title("ARTLib Studio - Step-By-Step ART Explorer")
 
     # Fetch adapters
     adapters = list_adapters()
